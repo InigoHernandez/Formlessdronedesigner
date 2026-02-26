@@ -1,8 +1,11 @@
 // FORMLESS — Global Master Bus Audio Engine
-// Chain: strokeSources → envelope → sourceAmpGain(FLAVOR_SOURCE_AMPLITUDE) → flavorGain(duck/mute) → panner → flavorBusGain(fader) → [SAW/METAL: tanhClipper] → flavorLimiter(ceiling) → masterBus → Filter → Delay → Reverb → Chorus → Phaser → Flanger → HighShelf → Compressor(transparent) → OutputGain(0.92) → SoftClipper → Destination
+// Chain: AudioWorkletNode(per-voice) → flavorBusGain(fader) → [SAW/METAL: tanhClipper] → flavorLimiter(ceiling) → masterBus → Filter → Delay → Reverb → Chorus → Phaser → Flanger → HighShelf → Compressor(transparent) → OutputGain(0.92) → SoftClipper → Destination
+// Per-voice synthesis + envelope runs on audio thread via AudioWorklet.
+// Fallback to native Web Audio nodes if worklet fails to load.
 // All effect nodes instantiated ONCE on load. Max 16 simultaneous strokes.
 
 import { findNearestScaleFreq, mapYToScaleFreq, type ScaleNote } from '../components/ScaleSelector';
+import { SYNTH_PROCESSOR_CODE } from './synthProcessorCode';
 
 /**
  * Safely create an AudioBufferSourceNode with its buffer pre-set.
@@ -80,6 +83,7 @@ export interface ActiveSound {
   targetVol?: number;        // peak volume for envelope calculations
   yPosition?: number;        // original canvas Y position for retune mapping
   isReleasing?: boolean;     // true when in release/fade phase
+  workletNode?: AudioWorkletNode; // AudioWorklet voice node (when using worklet path)
 }
 
 export interface ModulatorSettings {
@@ -333,6 +337,10 @@ export class AudioEngine {
   private droneMode = false;
   private playMode: PlayMode = 'gate';
 
+  // AudioWorklet state
+  private workletReady = false;
+  private workletBlobUrl: string | null = null;
+
   // Scale frequency table (rebuilt on root/scale change)
   private scaleTable: ScaleNote[] = [];
 
@@ -345,11 +353,23 @@ export class AudioEngine {
   // ═══════════════════════════════════════════
   // INIT — build entire master bus ONCE
   // ═══════════════════════════════════════════
-  initialize() {
+  async initialize() {
     if (this.ctx) return;
     this.ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
     const c = this.ctx;
     const now = c.currentTime;
+
+    // Register AudioWorklet processor (async, non-blocking)
+    try {
+      const blob = new Blob([SYNTH_PROCESSOR_CODE], { type: 'application/javascript' });
+      this.workletBlobUrl = URL.createObjectURL(blob);
+      await c.audioWorklet.addModule(this.workletBlobUrl);
+      this.workletReady = true;
+      console.log('[FORMLESS] AudioWorklet synth registered');
+    } catch (e) {
+      console.warn('[FORMLESS] AudioWorklet failed to load, using native nodes fallback', e);
+      this.workletReady = false;
+    }
 
     // Master bus — all strokes connect here
     this.masterBus = c.createGain();
@@ -1254,34 +1274,37 @@ export class AudioEngine {
       // Determine new frequency from the stroke's original Y position
       let newFreq: number;
       if (s.yPosition != null) {
-        // Map original Y position to the new scale table
         const scaleNote = mapYToScaleFreq(s.yPosition, canvasHeight, this.scaleTable);
         newFreq = scaleNote.freq;
       } else {
-        // Fallback: find nearest scale degree from current frequency
         const nearest = findNearestScaleFreq(s.baseFrequency, this.scaleTable);
         newFreq = nearest.freq;
       }
 
-      if (Math.abs(newFreq - s.baseFrequency) < 0.01) return; // no change needed
+      if (Math.abs(newFreq - s.baseFrequency) < 0.01) return;
 
-      // Helper: exponential glide for an oscillator frequency param
+      // ── WORKLET PATH ──
+      if (s.workletNode) {
+        s.workletNode.port.postMessage({ type: 'retune', freq: newFreq, glideRate: 0.001 });
+        s.baseFrequency = newFreq;
+        s.quantizedFreq = newFreq;
+        return;
+      }
+
+      // ── FALLBACK: native node path ──
       const glideOscFreq = (param: AudioParam, targetFreq: number) => {
         try {
           param.cancelScheduledValues(now);
           param.setValueAtTime(param.value, now);
-          // exponentialRamp requires target > 0
           param.exponentialRampToValueAtTime(Math.max(targetFreq, 0.001), now + glideTime);
         } catch (_) {}
       };
 
-      // Glide all main oscillators (preserve harmonic ratios relative to base)
       s.oscillators.forEach(osc => {
         const ratio = osc.frequency.value / s.baseFrequency;
         glideOscFreq(osc.frequency, newFreq * ratio);
       });
 
-      // Glide harmonic oscillators
       if (s.harmonicOscs) {
         s.harmonicOscs.forEach(osc => {
           const ratio = osc.frequency.value / s.baseFrequency;
@@ -1289,7 +1312,6 @@ export class AudioEngine {
         });
       }
 
-      // Glide live harmonic oscillators
       if (s.liveOctaveOsc) {
         glideOscFreq(s.liveOctaveOsc.frequency, newFreq * 2);
       }
@@ -1300,7 +1322,6 @@ export class AudioEngine {
         glideOscFreq(s.live2ndOctaveOsc.frequency, newFreq * 4);
       }
 
-      // Update base frequency and quantized freq
       s.baseFrequency = newFreq;
       s.quantizedFreq = newFreq;
     });
@@ -1325,7 +1346,15 @@ export class AudioEngine {
 
       const newBaseFreq = s.baseFrequency * ratio;
 
-      // Glide all oscillators (works for sine, saw, sub, fm, flutter, organ, grain pitched oscs)
+      // ── WORKLET PATH ──
+      if (s.workletNode) {
+        s.workletNode.port.postMessage({ type: 'retune', freq: newBaseFreq, glideRate: 0.001 });
+        s.baseFrequency = newBaseFreq;
+        s.quantizedFreq = newBaseFreq;
+        return;
+      }
+
+      // ── FALLBACK: native node path ──
       s.oscillators.forEach(osc => {
         try {
           const freqRatio = osc.frequency.value / s.baseFrequency;
@@ -1335,7 +1364,6 @@ export class AudioEngine {
         } catch (_) {}
       });
 
-      // Glide harmonic oscillators
       if (s.harmonicOscs) {
         s.harmonicOscs.forEach(osc => {
           try {
@@ -1347,7 +1375,6 @@ export class AudioEngine {
         });
       }
 
-      // Glide live harmonic oscillators
       if (s.liveOctaveOsc) {
         try {
           s.liveOctaveOsc.frequency.cancelScheduledValues(now);
@@ -1370,8 +1397,6 @@ export class AudioEngine {
         } catch (_) {}
       }
 
-      // For GRAIN and NOISE flavors: shift buffer source playbackRate
-      // AudioBufferSourceNodes are stored in allNodes
       s.allNodes.forEach(node => {
         if (node instanceof AudioBufferSourceNode) {
           try {
@@ -1383,7 +1408,6 @@ export class AudioEngine {
         }
       });
 
-      // Update base frequency and quantized freq
       s.baseFrequency = newBaseFreq;
       s.quantizedFreq = newBaseFreq;
     });
@@ -1418,24 +1442,29 @@ export class AudioEngine {
   clearAllStrokes(fadeSec: number) {
     if (!this.ctx) return;
     const now = this.ctx.currentTime;
-    // Snapshot IDs so we iterate a stable list
     const pool = [...this.strokePool];
     for (const s of pool) {
-      // Cancel any pending automation/timers
       if (s.loopTimeout) clearTimeout(s.loopTimeout);
       if (s.cleanupTimeout) clearTimeout(s.cleanupTimeout);
       if (s.pulseInterval) { clearInterval(s.pulseInterval); s.pulseInterval = undefined; }
       if (s.deepRumbleInterval) clearTimeout(s.deepRumbleInterval);
       s.locked = false;
-      // Fast fade envelope to 0
-      s.envelope.gain.cancelScheduledValues(now);
-      s.envelope.gain.setValueAtTime(s.envelope.gain.value, now);
-      s.envelope.gain.linearRampToValueAtTime(0, now + fadeSec);
+
+      if (s.workletNode) {
+        s.workletNode.port.postMessage({ type: 'startRelease', releaseTime: fadeSec });
+      } else {
+        s.envelope.gain.cancelScheduledValues(now);
+        s.envelope.gain.setValueAtTime(s.envelope.gain.value, now);
+        s.envelope.gain.linearRampToValueAtTime(0, now + fadeSec);
+      }
     }
-    // After the fade completes, disconnect all nodes and clear collections
     const cleanupMs = fadeSec * 1000 + 50;
     setTimeout(() => {
       for (const s of pool) {
+        if (s.workletNode) {
+          s.workletNode.port.postMessage({ type: 'kill' });
+          try { s.workletNode.disconnect(); } catch (_) {}
+        }
         s.allNodes.forEach(n => {
           try { if ('stop' in n && typeof (n as any).stop === 'function') (n as any).stop(); } catch (_) {}
           try { n.disconnect(); } catch (_) {}
@@ -1596,8 +1625,30 @@ export class AudioEngine {
     if (settings.tempo !== undefined || settings.pulseLength !== undefined ||
         settings.envAttack !== undefined || settings.envRelease !== undefined) {
       this.activeSounds.forEach(s => {
-        if (s.pulseInterval && !s.isDrone) {
+        if (s.workletNode && s.locked && !s.isDrone) {
+          // Update pulse params on worklet
+          s.workletNode.port.postMessage({
+            type: 'updatePulse',
+            beatDur: 60 / this.mod.tempo,
+            pulseLength: this.mod.pulseLength,
+            attack: AudioEngine.mapAttackSec(this.mod.envAttack),
+            release: AudioEngine.mapReleaseSec(this.mod.envRelease),
+          });
+        } else if (s.pulseInterval && !s.isDrone) {
           this.startPulseEnvelope(s, s.targetVol ?? 0.15);
+        }
+      });
+    }
+
+    // Envelope changes: propagate to worklet voices
+    if (settings.envAttack !== undefined || settings.envRelease !== undefined) {
+      this.activeSounds.forEach(s => {
+        if (s.workletNode && !s.isDrone) {
+          s.workletNode.port.postMessage({
+            type: 'setEnvParams',
+            attack: AudioEngine.mapAttackSec(this.mod.envAttack),
+            release: AudioEngine.mapReleaseSec(this.mod.envRelease),
+          });
         }
       });
     }
@@ -1644,11 +1695,14 @@ export class AudioEngine {
     if (!this.ctx) return;
     const count = this.strokePool.length;
     const now = this.ctx.currentTime;
-    // Below 12 voices: full gain. 12-16: linearly reduce to 0.5
     const duckGain = count <= 12 ? 1 : Math.max(0.5, 1 - (count - 12) * 0.125);
     this.strokePool.forEach(s => {
       if (!s.muted) {
-        s.flavorGain.gain.setTargetAtTime(duckGain, now, 0.05);
+        if (s.workletNode) {
+          s.workletNode.port.postMessage({ type: 'setDuck', gain: duckGain });
+        } else {
+          s.flavorGain.gain.setTargetAtTime(duckGain, now, 0.05);
+        }
       }
     });
   }
@@ -1661,6 +1715,22 @@ export class AudioEngine {
     if (s.cleanupTimeout) clearTimeout(s.cleanupTimeout);
     if (s.pulseInterval) clearInterval(s.pulseInterval);
     if (s.deepRumbleInterval) clearTimeout(s.deepRumbleInterval);
+
+    // ── WORKLET PATH: immediate cleanup ──
+    if (s.workletNode) {
+      s.workletNode.port.postMessage({ type: 'kill' });
+      setTimeout(() => {
+        try { s.workletNode?.disconnect(); } catch (_) {}
+        this.activeSounds.delete(id);
+        const idx = this.strokePool.findIndex(x => x.id === id);
+        if (idx >= 0) this.strokePool.splice(idx, 1);
+        this.applyVoiceDucking();
+        this.checkResonance();
+      }, 50);
+      return;
+    }
+
+    // ── FALLBACK: native node cleanup ──
     // Quick fade out
     s.envelope.gain.cancelScheduledValues(now);
     s.envelope.gain.setValueAtTime(s.envelope.gain.value, now);
@@ -1699,9 +1769,102 @@ export class AudioEngine {
     const freq = quantizedFrequency || this.mapYToFreq(stroke.avgY);
     const isDrone = this.droneMode;
 
+    // ── TRY AUDIOWORKLET PATH ──
+    const vol = this.mapSpeedToVol(stroke.speed);
+    const avgX = stroke.points.reduce((s, p) => s + p.x, 0) / stroke.points.length;
+    const pan = (avgX / window.innerWidth) * 2 - 1;
+
+    const workletNode = this.createWorkletVoice(stroke.flavor, freq, vol, pan, {
+      isDrone,
+      attack: AudioEngine.mapAttackSec(this.mod.envAttack),
+      release: AudioEngine.mapReleaseSec(this.mod.envRelease),
+      yPosition: stroke.avgY,
+      grainSize: this.mod.grainSize,
+      grainScatter: this.mod.grainScatter,
+      grainPitchSpread: this.mod.grainPitchSpread,
+    });
+
+    if (workletNode) {
+      const dur = isDrone ? 86400 : (locked ? (60 / this.mod.tempo) * 4 : this.mapLengthToDur(stroke.length));
+
+      // Connect: workletNode → flavorBusGain → [clipper] → limiter → masterBus
+      const flavorBus = this.flavorBusGains[stroke.flavor];
+      if (flavorBus && !this.disconnectedBuses.has(stroke.flavor)) {
+        flavorBus.gain.cancelScheduledValues(now);
+        flavorBus.gain.setValueAtTime(this.flavorVolumes[stroke.flavor], now);
+      }
+      workletNode.connect(flavorBus || this.masterBus);
+
+      // Dummy nodes for compatibility
+      const dummyEnvelope = c.createGain();
+      dummyEnvelope.gain.value = 0;
+      const dummyFlavorGain = c.createGain();
+      dummyFlavorGain.gain.value = 1;
+
+      const sound: ActiveSound = {
+        id, envelope: dummyEnvelope, flavorGain: dummyFlavorGain,
+        oscillators: [], allNodes: [workletNode], startTime: now, duration: dur,
+        locked, flavor: stroke.flavor, baseFrequency: freq,
+        muted: false, harmonicOscs: [], strokeData: stroke,
+        quantizedFreq: quantizedFrequency,
+        isDrone, targetVol: vol, yPosition: stroke.avgY,
+        workletNode,
+      };
+
+      workletNode.port.onmessage = (e) => {
+        if (e.data.type === 'done') this.removeStroke(id);
+      };
+
+      // Handle drone/pulse/gate modes
+      if (isDrone) {
+        workletNode.port.postMessage({ type: 'freezeEnvelope' });
+      } else if (this.playMode === 'pulse') {
+        const beatDur = 60 / this.mod.tempo;
+        workletNode.port.postMessage({
+          type: 'startPulse', beatDur,
+          pulseLength: this.mod.pulseLength,
+          attack: AudioEngine.mapAttackSec(this.mod.envAttack),
+          release: AudioEngine.mapReleaseSec(this.mod.envRelease),
+          vol,
+        });
+      } else if (!locked) {
+        // Gate unlocked: schedule release
+        const { release } = this.getEnvParams(stroke.flavor);
+        const total = dur * this.mod.drift;
+        workletNode.port.postMessage({ type: 'startRelease', releaseTime: release });
+        sound.cleanupTimeout = setTimeout(() => this.removeStroke(id), total * 1000 + 200);
+      } else {
+        // Gate locked: schedule loop
+        sound.loopTimeout = setTimeout(() => {
+          const ss = this.activeSounds.get(id);
+          if (ss?.locked && this.ctx) {
+            this.removeStroke(id);
+            this.playStroke(stroke, id + '_loop', true, quantizedFrequency);
+          }
+        }, dur * 1000);
+      }
+
+      this.activeSounds.set(id, sound);
+      this.strokePool.push(sound);
+      this.applyVoiceDucking();
+      this.checkResonance();
+
+      // Connect LFOs (PITCH target)
+      [this.lfo1Gain, this.lfo2Gain].forEach((lg, i) => {
+        const target = i === 0 ? this.mod.lfo1Target : this.mod.lfo2Target;
+        const depth = i === 0 ? this.mod.lfo1Depth : this.mod.lfo2Depth;
+        if (!lg || depth <= 0 || target !== 'PITCH') return;
+        // LFOs can't directly connect to worklet params, but drift is built into the worklet
+      });
+
+      return evictedId;
+    }
+
+    // ── FALLBACK: native Web Audio nodes (original code) ──
+
     // TEMPO only affects GATE-locked strokes. Drone mode: TEMPO has zero effect.
     const dur = isDrone ? 86400 : (locked ? (60 / this.mod.tempo) * 4 : this.mapLengthToDur(stroke.length));
-    const vol = this.mapSpeedToVol(stroke.speed);
+    // vol, avgX, pan already computed above
     // Drone: oscillators never scheduled to stop. Gate: finite endTime.
     const endTime = isDrone ? now + 86400 : (locked ? now + dur : now + dur * this.mod.drift);
 
@@ -1713,8 +1876,6 @@ export class AudioEngine {
     const harmonicOscs: OscillatorNode[] = [];
     let noiseDeepRumbleInterval: ReturnType<typeof setInterval> | undefined;
 
-    const avgX = stroke.points.reduce((s, p) => s + p.x, 0) / stroke.points.length;
-    const pan = (avgX / window.innerWidth) * 2 - 1;
     const panner = c.createStereoPanner();
     panner.pan.setValueAtTime(pan, now);
     allNodes.push(panner);
@@ -2103,8 +2264,15 @@ export class AudioEngine {
     s.isReleasing = true;
     if (s.loopTimeout) clearTimeout(s.loopTimeout);
     if (s.pulseInterval) { clearInterval(s.pulseInterval); s.pulseInterval = undefined; }
-    const now = this.ctx.currentTime;
     const fade = fadeDuration ?? AudioEngine.mapReleaseSec(this.mod.envRelease);
+
+    if (s.workletNode) {
+      s.workletNode.port.postMessage({ type: 'startRelease', releaseTime: fade });
+      s.cleanupTimeout = setTimeout(() => this.removeStroke(id), fade * 1000 + 500);
+      return;
+    }
+
+    const now = this.ctx.currentTime;
     s.envelope.gain.cancelScheduledValues(now);
     s.envelope.gain.setValueAtTime(s.envelope.gain.value, now);
     s.envelope.gain.linearRampToValueAtTime(0, now + fade);
@@ -2135,10 +2303,14 @@ export class AudioEngine {
     const s = this.activeSounds.get(id);
     if (s && this.ctx) {
       s.muted = !s.muted;
-      const now = this.ctx.currentTime;
-      s.flavorGain.gain.cancelScheduledValues(now);
-      s.flavorGain.gain.setValueAtTime(s.flavorGain.gain.value, now);
-      s.flavorGain.gain.linearRampToValueAtTime(s.muted ? 0.02 : 1, now + 0.1);
+      if (s.workletNode) {
+        s.workletNode.port.postMessage({ type: 'setDuck', gain: s.muted ? 0.02 : 1 });
+      } else {
+        const now = this.ctx.currentTime;
+        s.flavorGain.gain.cancelScheduledValues(now);
+        s.flavorGain.gain.setValueAtTime(s.flavorGain.gain.value, now);
+        s.flavorGain.gain.linearRampToValueAtTime(s.muted ? 0.02 : 1, now + 0.1);
+      }
     }
   }
 
@@ -2163,6 +2335,47 @@ export class AudioEngine {
     }
   }
 
+  // ═══════════════════════════════════════════
+  // AUDIOWORKLET VOICE CREATION
+  // ═══════════════════════════════════════════
+  private createWorkletVoice(
+    flavor: SoundFlavor, freq: number, vol: number, pan: number,
+    opts: {
+      isDrone?: boolean; attack?: number; release?: number;
+      yPosition?: number; filterCutoff?: number;
+      grainSize?: number; grainScatter?: number; grainPitchSpread?: number;
+    } = {}
+  ): AudioWorkletNode | null {
+    if (!this.ctx || !this.workletReady) return null;
+    try {
+      const node = new AudioWorkletNode(this.ctx, 'synth-voice', {
+        numberOfInputs: 0,
+        numberOfOutputs: 1,
+        outputChannelCount: [2],
+        processorOptions: {
+          flavor,
+          freq,
+          vol,
+          pan,
+          sourceAmp: FLAVOR_SOURCE_AMPLITUDE[flavor],
+          isDrone: opts.isDrone || false,
+          attack: opts.attack ?? AudioEngine.mapAttackSec(this.mod.envAttack),
+          release: opts.release ?? AudioEngine.mapReleaseSec(this.mod.envRelease),
+          sustain: 0.8,
+          filterCutoff: opts.filterCutoff ?? 8000,
+          yPosition: opts.yPosition != null ? opts.yPosition / window.innerHeight : 0.5,
+          grainSize: opts.grainSize ?? this.mod.grainSize,
+          grainScatter: opts.grainScatter ?? this.mod.grainScatter,
+          grainPitchSpread: opts.grainPitchSpread ?? this.mod.grainPitchSpread,
+        },
+      });
+      return node;
+    } catch (e) {
+      console.warn('[FORMLESS] Failed to create worklet voice', e);
+      return null;
+    }
+  }
+
   private getEnvParams(_f: SoundFlavor) {
     // Attack and release are now user-controllable via knobs
     const attack = AudioEngine.mapAttackSec(this.mod.envAttack);
@@ -2184,7 +2397,7 @@ export class AudioEngine {
   private mapLengthToDur(l: number) { return 4 + Math.min(l/800, 1) * 4; }
   private mapSpeedToVol(s: number) { return 0.12 + Math.min(s/15, 1) * 0.25; }
 
-  // ═══════════════════════════════════════════
+  // ══════════════════════���════════════════════
   // LIVE STROKE — real-time sound during drawing gesture
   // ═══════════════════════════════════════════
   startLiveStroke(id: string, freq: number, flavor: SoundFlavor, panX: number, yPosition?: number): string | null {
@@ -2197,30 +2410,76 @@ export class AudioEngine {
     const c = this.ctx;
     const now = c.currentTime;
     const vol = 0.15;
+    const pan = Math.max(-1, Math.min(1, panX * 2 - 1));
 
+    // ── TRY AUDIOWORKLET PATH ──
+    const workletNode = this.createWorkletVoice(flavor, freq, vol, pan, {
+      isDrone: this.playMode === 'drone',
+      yPosition,
+      filterCutoff: 2000, // start with warm filter for live stroke
+    });
+
+    if (workletNode) {
+      // Worklet path: minimal native node overhead
+      // Chain: workletNode → flavorBusGain → [clipper] → limiter → masterBus
+      const flavorBus = this.flavorBusGains[flavor];
+      if (flavorBus && !this.disconnectedBuses.has(flavor)) {
+        flavorBus.gain.cancelScheduledValues(now);
+        flavorBus.gain.setValueAtTime(this.flavorVolumes[flavor], now);
+      }
+      workletNode.connect(flavorBus || this.masterBus);
+
+      // Dummy nodes for compatibility with existing cleanup code
+      const dummyEnvelope = c.createGain();
+      dummyEnvelope.gain.value = 0; // not used in worklet path
+      const dummyFlavorGain = c.createGain();
+      dummyFlavorGain.gain.value = 1;
+
+      const sound: ActiveSound = {
+        id, envelope: dummyEnvelope, flavorGain: dummyFlavorGain,
+        oscillators: [], allNodes: [workletNode], startTime: now,
+        duration: 86400, locked: false, flavor, baseFrequency: freq,
+        muted: false, harmonicOscs: [],
+        isLive: true, accumulatedLength: 0,
+        isDrone: this.playMode === 'drone', targetVol: vol,
+        yPosition, workletNode,
+      };
+
+      // Listen for 'done' from worklet
+      workletNode.port.onmessage = (e) => {
+        if (e.data.type === 'done') {
+          this.removeStroke(id);
+        }
+      };
+
+      this.activeSounds.set(id, sound);
+      this.strokePool.push(sound);
+      this.applyVoiceDucking();
+      return evictedId;
+    }
+
+    // ── FALLBACK: native Web Audio nodes ──
     const envelope = c.createGain();
     envelope.gain.setValueAtTime(0, now);
     const liveAttack = AudioEngine.mapAttackSec(this.mod.envAttack);
     envelope.gain.linearRampToValueAtTime(vol, now + liveAttack);
 
     const flavorGain = c.createGain();
-    flavorGain.gain.value = 1; // ducking/mute only — fader value lives in flavorBusGains
+    flavorGain.gain.value = 1;
 
-    // Per-stroke local filter: horizontal velocity modulates cutoff
     const liveFilter = c.createBiquadFilter();
     liveFilter.type = 'lowpass';
     liveFilter.frequency.setValueAtTime(2000, now);
     liveFilter.Q.setValueAtTime(1, now);
 
     const panner = c.createStereoPanner();
-    panner.pan.setValueAtTime(Math.max(-1, Math.min(1, panX * 2 - 1)), now);
+    panner.pan.setValueAtTime(pan, now);
 
     const oscillators: OscillatorNode[] = [];
     const harmonicOscs: OscillatorNode[] = [];
     const allNodes: AudioNode[] = [envelope, flavorGain, liveFilter, panner];
 
     if (flavor === 'noise') {
-      // Live NOISE: simplified ocean texture (2 layers for low latency)
       const pinkLen = c.sampleRate * 4;
       const pinkBuf = c.createBuffer(1, pinkLen, c.sampleRate);
       const pd = pinkBuf.getChannelData(0);
@@ -2235,8 +2494,6 @@ export class AudioEngine {
       const wBuf = c.createBuffer(1, wLen, c.sampleRate);
       const wd = wBuf.getChannelData(0);
       for (let i = 0; i < wLen; i++) wd[i] = Math.random() * 2 - 1;
-
-      // Surge layer (+8dB boost via 2.5x multiplier)
       const surgeNs = createBufferSource(c, pinkBuf);
       const surfNs = createBufferSource(c, wBuf);
       if (surgeNs) {
@@ -2246,7 +2503,6 @@ export class AudioEngine {
         surgeNs.connect(surgeLP); surgeLP.connect(surgeG); surgeG.connect(liveFilter);
         allNodes.push(surgeNs, surgeLP, surgeG);
       }
-      // Surface layer (+8dB boost)
       if (surfNs) {
         surfNs.loop = true; surfNs.start(now);
         const surfBP = c.createBiquadFilter(); surfBP.type = 'bandpass'; surfBP.frequency.value = 1200; surfBP.Q.value = 0.6;
@@ -2255,7 +2511,6 @@ export class AudioEngine {
         allNodes.push(surfNs, surfBP, surfG);
       }
     } else {
-      // Fundamental oscillator (simplified per flavor)
       const osc = c.createOscillator();
       switch (flavor) {
         case 'sine': osc.type = 'sine'; break;
@@ -2267,7 +2522,6 @@ export class AudioEngine {
         default: osc.type = 'sine';
       }
       if (flavor !== 'sub') osc.frequency.setValueAtTime(freq, now);
-      // Per-flavor EQ shaping in live path
       let oscOut: AudioNode = osc;
       if (flavor === 'sine') {
         const sinePeak = c.createBiquadFilter();
@@ -2285,14 +2539,12 @@ export class AudioEngine {
       allNodes.push(osc);
     }
 
-    // Anchor fader value on the AudioContext timeline before connecting sources
     const flavorBus = this.flavorBusGains[flavor];
     if (flavorBus && !this.disconnectedBuses.has(flavor)) {
       flavorBus.gain.cancelScheduledValues(now);
       flavorBus.gain.setValueAtTime(this.flavorVolumes[flavor], now);
     }
 
-    // Connect: liveFilter → envelope → sourceAmpGain → flavorGain(duck/mute) → panner → flavorBusGain(fader) → [limiter] → masterBus
     const sourceAmpGain = c.createGain();
     sourceAmpGain.gain.value = FLAVOR_SOURCE_AMPLITUDE[flavor];
     liveFilter.connect(envelope);
@@ -2325,20 +2577,50 @@ export class AudioEngine {
   }) {
     const s = this.activeSounds.get(id);
     if (!s || !s.isLive || !this.ctx) return;
+
+    // ── WORKLET PATH ──
+    if (s.workletNode) {
+      const cutoff = 400 + Math.min(params.hVelocity / 800, 1) * 7600;
+      const vol = (0.1 + Math.min(params.pointerVelocity / 1200, 1) * 0.25);
+
+      s.workletNode.port.postMessage({ type: 'setFilterCutoff', cutoff });
+      s.workletNode.port.postMessage({ type: 'setGain', vol });
+
+      if (s.flavor !== 'noise' && params.directionChange && params.freqTarget) {
+        s.workletNode.port.postMessage({ type: 'setFreq', freq: params.freqTarget });
+        s.baseFrequency = params.freqTarget;
+      }
+
+      // Progressive harmonics via worklet message
+      s.accumulatedLength = params.accLength;
+      if (s.flavor !== 'noise' && s.flavor !== 'grain') {
+        if (params.accLength > 100 && !s.liveOctaveOsc) {
+          s.workletNode.port.postMessage({ type: 'addHarmonic', harmonic: 'octave', gain: 0.3 });
+          s.liveOctaveOsc = {} as OscillatorNode; // marker
+        }
+        if (params.accLength > 200 && !s.liveFifthOsc) {
+          s.workletNode.port.postMessage({ type: 'addHarmonic', harmonic: 'fifth', gain: 0.2 });
+          s.liveFifthOsc = {} as OscillatorNode; // marker
+        }
+        if (params.accLength > 300 && !s.live2ndOctaveOsc) {
+          s.workletNode.port.postMessage({ type: 'addHarmonic', harmonic: '2ndOctave', gain: 0.15 });
+          s.live2ndOctaveOsc = {} as OscillatorNode; // marker
+        }
+      }
+      return;
+    }
+
+    // ── FALLBACK: native node path ──
     const now = this.ctx.currentTime;
 
-    // 1. Horizontal velocity -> per-stroke filter cutoff (400Hz-8000Hz)
     if (s.liveFilter) {
       const cutoff = 400 + Math.min(params.hVelocity / 800, 1) * 7600;
       s.liveFilter.frequency.setTargetAtTime(cutoff, now, 0.05);
     }
 
-    // 2. Pointer velocity -> gain (louder when fast)
     const vol = (0.1 + Math.min(params.pointerVelocity / 1200, 1) * 0.25);
     s.envelope.gain.setTargetAtTime(vol, now, 0.05);
 
-    // 3. Direction change -> pitch glide by one scale degree over 150ms
-    // NOISE: skip pitch changes (ocean texture is pitch-independent)
     if (s.flavor !== 'noise' && params.directionChange && params.freqTarget && s.oscillators.length > 0) {
       s.oscillators.forEach(o => {
         try { o.frequency.setTargetAtTime(params.freqTarget!, now, 0.05); } catch (_) {}
@@ -2346,12 +2628,10 @@ export class AudioEngine {
       s.baseFrequency = params.freqTarget;
     }
 
-    // 4. Progressive harmonics based on accumulated length (skip for noise)
     s.accumulatedLength = params.accLength;
-    if (s.flavor === 'noise') return; // noise has no harmonics to add
+    if (s.flavor === 'noise') return;
     const c = this.ctx;
 
-    // >100px: octave at 30%
     if (params.accLength > 100 && !s.liveOctaveOsc) {
       const oOsc = c.createOscillator(); oOsc.type = 'sine';
       oOsc.frequency.setValueAtTime(s.baseFrequency * 2, now);
@@ -2363,8 +2643,6 @@ export class AudioEngine {
       s.allNodes.push(oOsc, oGain);
       s.harmonicOscs?.push(oOsc);
     }
-
-    // >200px: fifth at 20%
     if (params.accLength > 200 && !s.liveFifthOsc) {
       const fOsc = c.createOscillator(); fOsc.type = 'sine';
       fOsc.frequency.setValueAtTime(s.baseFrequency * Math.pow(2, 7 / 12), now);
@@ -2376,8 +2654,6 @@ export class AudioEngine {
       s.allNodes.push(fOsc, fGain);
       s.harmonicOscs?.push(fOsc);
     }
-
-    // >300px: 2nd octave at 15%
     if (params.accLength > 300 && !s.live2ndOctaveOsc) {
       const o2 = c.createOscillator(); o2.type = 'sine';
       o2.frequency.setValueAtTime(s.baseFrequency * 4, now);
@@ -2398,8 +2674,54 @@ export class AudioEngine {
     const now = this.ctx.currentTime;
     const mode = this.playMode;
 
+    // ── WORKLET PATH ──
+    if (s.workletNode) {
+      if (mode === 'drone') {
+        s.locked = true;
+        s.isDrone = true;
+        s.workletNode.port.postMessage({ type: 'freezeEnvelope' });
+      } else if (mode === 'pulse') {
+        s.locked = true;
+        const beatDur = 60 / this.mod.tempo;
+        s.workletNode.port.postMessage({
+          type: 'startPulse',
+          beatDur,
+          pulseLength: this.mod.pulseLength,
+          attack: AudioEngine.mapAttackSec(this.mod.envAttack),
+          release: AudioEngine.mapReleaseSec(this.mod.envRelease),
+          vol: s.targetVol || 0.15,
+        });
+      } else if (locked) {
+        s.locked = true;
+        const dur = (60 / this.mod.tempo) * 4;
+        s.duration = dur;
+        // Let worklet handle envelope, schedule loop restart from main thread
+        const { release } = this.getEnvParams(s.flavor);
+        s.workletNode.port.postMessage({
+          type: 'startRelease',
+          releaseTime: release,
+        });
+        // Schedule release at end of bar (dur - release)
+        s.loopTimeout = setTimeout(() => {
+          const ss = this.activeSounds.get(id);
+          if (ss?.locked && ss.strokeData && this.ctx) {
+            this.removeStroke(id);
+            this.playStroke(ss.strokeData, id + '_loop', true, ss.quantizedFreq);
+          }
+        }, dur * 1000);
+      } else {
+        // GATE unlocked: fade out via worklet
+        const { release } = this.getEnvParams(s.flavor);
+        const fadeTime = Math.max(0.5, release * this.mod.drift);
+        s.workletNode.port.postMessage({ type: 'startRelease', releaseTime: fadeTime });
+        // Worklet will send 'done' message, but add safety cleanup
+        s.cleanupTimeout = setTimeout(() => this.removeStroke(id), fadeTime * 1000 + 500);
+      }
+      return;
+    }
+
+    // ── FALLBACK: native node path ──
     if (mode === 'drone') {
-      // DRONE: freeze gain at current level. No further scheduled changes.
       s.locked = true;
       s.isDrone = true;
       const targetVol = s.envelope.gain.value || 0.15;
@@ -2407,12 +2729,10 @@ export class AudioEngine {
       s.envelope.gain.cancelScheduledValues(now);
       s.envelope.gain.setValueAtTime(targetVol, now);
     } else if (mode === 'pulse') {
-      // PULSE: rhythmic repeating envelope at TEMPO grid
       s.locked = true;
       const curVol = s.envelope.gain.value || 0.15;
       this.startPulseEnvelope(s, curVol);
     } else if (locked) {
-      // GATE locked: tempo-quantized loop
       s.locked = true;
       const dur = (60 / this.mod.tempo) * 4;
       s.duration = dur;
@@ -2430,7 +2750,6 @@ export class AudioEngine {
         }
       }, dur * 1000);
     } else {
-      // GATE unlocked: fade out
       const { release } = this.getEnvParams(s.flavor);
       const fadeTime = Math.max(0.5, release * this.mod.drift);
       const curVol = s.envelope.gain.value;
