@@ -12,6 +12,8 @@ interface Props {
   modulators: ModulatorSettings;
   onUpdate: (s: Partial<ModulatorSettings>) => void;
   playMode?: PlayMode;
+  isOpen?: boolean;
+  onToggle?: (v: boolean) => void;
 }
 
 // ─── Knob ───
@@ -230,8 +232,13 @@ const LFO_TARGETS: LfoTarget[] = ['PITCH', 'FILTER', 'VOLUME', 'PAN', 'REVERB', 
 function rand(min: number, max: number) { return min + Math.random() * (max - min); }
 function pick<T>(arr: T[]): T { return arr[Math.floor(Math.random() * arr.length)]; }
 
-export function ModulatorPanel({ modulators: m, onUpdate, playMode }: Props) {
-  const [isOpen, setIsOpen] = useState(true);
+export function ModulatorPanel({ modulators: m, onUpdate, playMode, isOpen: isOpenProp, onToggle }: Props) {
+  const [isOpenInternal, setIsOpenInternal] = useState(isOpenProp ?? true);
+  const isOpen = isOpenProp !== undefined ? isOpenProp : isOpenInternal;
+  const handleToggle = useCallback((v: boolean) => {
+    setIsOpenInternal(v);
+    onToggle?.(v);
+  }, [onToggle]);
   const [activeKnob, setActiveKnob] = useState<string | null>(null);
   const [tempVal, setTempVal] = useState<number | null>(null);
   const [zeroPulse, setZeroPulse] = useState(false);
@@ -394,7 +401,7 @@ export function ModulatorPanel({ modulators: m, onUpdate, playMode }: Props) {
   return (
     <div className="fixed top-0 right-0 h-full z-30 flex" style={{ pointerEvents: 'none' }}>
       <div className="flex flex-col items-end self-start mt-4 gap-1" style={{ pointerEvents: 'auto' }}>
-        <button onClick={() => setIsOpen(!isOpen)}
+        <button onClick={() => handleToggle(!isOpen)}
           className="w-7 h-10 flex items-center justify-center backdrop-blur-sm border border-r-0 rounded-l transition-all duration-300"
           style={{ backgroundColor: 'var(--fm-panel-bg)', borderColor: 'var(--fm-section-btn-border)' }}
           aria-label={isOpen ? 'Collapse Sound Sculptor panel' : 'Expand Sound Sculptor panel'}>

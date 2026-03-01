@@ -72,6 +72,7 @@ export function DrawingCanvas() {
   const [playMode, setPlayMode] = useState<PlayMode>('gate');
   const playModeRef = useRef<PlayMode>('gate');
   const [flavorVolumes, setFlavorVolumes] = useState(audioEngineRef.current.getFlavorVolumes());
+  const [sculptorOpen, setSculptorOpen] = useState(true);
 
   // Octave selector state (default 3, range 1-6)
   const [octave, setOctave] = useState(3);
@@ -847,7 +848,7 @@ export function DrawingCanvas() {
         {/* FORMLESS wordmark — left-aligned with buttons */}
         <div
           className="font-mono opacity-45 tracking-widest select-none"
-          style={{ fontSize: '9px', width: LEFT_STRIP_WIDTH, marginBottom: '8px', color: 'var(--fm-accent)' }}
+          style={{ fontSize: '12px', width: LEFT_STRIP_WIDTH, marginBottom: '16px', color: 'var(--fm-accent)' }}
         >
           FORMLESS
         </div>
@@ -943,13 +944,22 @@ export function DrawingCanvas() {
 
       {/* Stroke counter */}
       {activeCount > 0 && (
-        <div className="absolute top-5 right-[260px] font-mono opacity-65 pointer-events-none tracking-wider z-20"
-          style={{ fontSize: '10px', color: 'var(--fm-accent)' }}>
-          {activeCount.toString().padStart(2, '0')}/16
+        <div className="absolute top-5 font-mono opacity-65 pointer-events-none tracking-wider z-20"
+          style={{
+            fontSize: '10px',
+            color: 'var(--fm-accent)',
+            right: sculptorOpen ? 'calc(220px + 40px)' : '40px',
+            transition: 'right 300ms ease-out',
+          }}>
+          {activeCount.toString().padStart(2, '0')}/24
         </div>
       )}
       {activeCount > 0 && (
-        <div className="absolute top-5 right-[310px] flex items-center gap-2 pointer-events-none z-20">
+        <div className="absolute top-5 flex items-center gap-2 pointer-events-none z-20"
+          style={{
+            right: sculptorOpen ? 'calc(220px + 90px)' : '90px',
+            transition: 'right 300ms ease-out',
+          }}>
           <div className="w-2 h-2 rounded-full animate-pulse" style={{ backgroundColor: 'var(--fm-accent)' }} />
         </div>
       )}
@@ -990,7 +1000,7 @@ export function DrawingCanvas() {
       {/* Sound Sculptor Panel */}
       <div className="transition-opacity duration-200"
         style={{ opacity: performanceMode ? 0 : 1, pointerEvents: performanceMode ? 'none' : 'auto' }}>
-        <ModulatorPanel modulators={modulators} onUpdate={handleModulatorUpdate} playMode={playMode} />
+        <ModulatorPanel modulators={modulators} onUpdate={handleModulatorUpdate} playMode={playMode} isOpen={sculptorOpen} onToggle={setSculptorOpen} />
       </div>
 
       {/* ═══ Root change radial pulse ═══ */}
