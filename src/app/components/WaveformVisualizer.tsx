@@ -79,7 +79,9 @@ export function WaveformVisualizer({ audioEngine }: WaveformVisualizerProps) {
     // Choose color based on theme
     const isDark = document.documentElement.classList.contains('theme-dark') ||
                    !document.documentElement.classList.contains('theme-light');
-    const color = isDark ? '#00FFD1' : '#00897B';
+    const idleColor = isDark ? '#F9D6B6' : '#2563EB';
+    const activeColor = isDark ? '#F59546' : '#2563EB';
+    const color = hasAudio ? activeColor : idleColor;
 
     if (!isDark) {
       // Light mode: single pass, no shadow — ~60% cheaper rendering

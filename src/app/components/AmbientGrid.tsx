@@ -37,8 +37,8 @@ export function AmbientGrid({ bpm = 85, isDark = true }: AmbientGridProps) {
 
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.strokeStyle = isDark
-        ? `rgba(0, 255, 209, ${opacity})`
-        : `rgba(0, 122, 106, ${opacity * 0.7})`;
+        ? `rgba(49, 28, 14, ${opacity * 1.5})`
+        : `rgba(180, 160, 140, ${opacity * 0.7})`;
       ctx.lineWidth = 1;
 
       // Draw horizontal grid lines

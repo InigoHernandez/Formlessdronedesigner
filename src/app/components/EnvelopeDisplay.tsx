@@ -6,10 +6,11 @@
 import { useRef, useEffect, useCallback, useState } from 'react';
 import { AudioEngine } from '../utils/audioEngine';
 import type { PlayMode } from '../utils/audioEngine';
+import { useTheme } from './ThemeContext';
 
 function getAccentRgb(): string {
   const raw = getComputedStyle(document.documentElement).getPropertyValue('--fm-accent-rgb').trim();
-  return raw || '0, 255, 209';
+  return raw || '245, 149, 70';
 }
 
 interface Props {
@@ -25,6 +26,7 @@ export function EnvelopeDisplay({ envAttack, envRelease, playMode = 'gate', temp
   const rafRef = useRef<number>(0);
   const [hoverPoint, setHoverPoint] = useState<'peak' | 'tail' | null>(null);
   const dragRef = useRef<{ point: 'peak' | 'tail'; startX: number; startVal: number } | null>(null);
+  const { isDark } = useTheme();
 
   // Convert knob 0-100 to seconds for display
   const atkSec = AudioEngine.mapAttackSec(envAttack);
@@ -48,7 +50,7 @@ export function EnvelopeDisplay({ envAttack, envRelease, playMode = 'gate', temp
 
     // Clear + rounded background
     ctx.clearRect(0, 0, w, h);
-    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    ctx.fillStyle = isDark ? 'rgba(28,14,6,0.4)' : 'rgba(210,225,245,0.6)';
     ctx.beginPath();
     const r = 4;
     ctx.moveTo(r, 0); ctx.lineTo(w - r, 0);
@@ -67,8 +69,8 @@ export function EnvelopeDisplay({ envAttack, envRelease, playMode = 'gate', temp
 
     // Gradient fill
     const grad = ctx.createLinearGradient(0, peak, 0, baseline);
-    grad.addColorStop(0, `rgba(${accentRgb},0.15)`);
-    grad.addColorStop(1, `rgba(${accentRgb},0)`);
+    grad.addColorStop(0, isDark ? `rgba(${accentRgb},0.15)` : `rgba(37,99,235,0.22)`);
+    grad.addColorStop(1, isDark ? `rgba(${accentRgb},0)` : `rgba(37,99,235,0)`);
 
     // Helper: draw convex attack bezier (fast initial rise, gentle approach to peak)
     // Control point is high up and early: creates upward-bowing curve
@@ -215,7 +217,7 @@ export function EnvelopeDisplay({ envAttack, envRelease, playMode = 'gate', temp
       drawPoint(ctx, atkX, peak, hoverPoint === 'peak' || dragRef.current?.point === 'peak');
       drawPoint(ctx, relEndX, baseline, hoverPoint === 'tail' || dragRef.current?.point === 'tail');
     }
-  }, [envAttack, envRelease, playMode, tempo, hoverPoint, atkSec, relSec, isDrone]);
+  }, [envAttack, envRelease, playMode, tempo, hoverPoint, atkSec, relSec, isDrone, isDark]);
 
   function drawPoint(ctx: CanvasRenderingContext2D, x: number, y: number, active: boolean) {
     const accentRgb = getAccentRgb();
@@ -335,7 +337,7 @@ export function EnvelopeDisplay({ envAttack, envRelease, playMode = 'gate', temp
         height: '80px',
         borderRadius: '4px',
         touchAction: 'none',
-        cursor: hoverPoint || dragRef.current ? 'ew-resize' : 'default',
+        cursor: hoverPoint || dragRef.current ? 'col-resize' : 'default',
       }}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}

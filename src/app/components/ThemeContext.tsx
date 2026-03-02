@@ -22,13 +22,51 @@ function setThemeClass(theme: 'dark' | 'light') {
   document.documentElement.classList.add(`theme-${theme}`);
 }
 
-export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [isDark, setIsDark] = useState(true);
+function getSystemPreference(): boolean {
+  if (typeof window === 'undefined') return true;
+  return !window.matchMedia('(prefers-color-scheme: light)').matches;
+}
 
-  // Apply theme class to <html> on mount and on every toggle
+const DARK_BG = '#0A0A0B';
+const LIGHT_BG = '#FDFDFD';
+
+function getOrCreateMeta(name: string): HTMLMetaElement {
+  let meta = document.querySelector(`meta[name="${name}"]`) as HTMLMetaElement | null;
+  if (!meta) {
+    meta = document.createElement('meta');
+    meta.name = name;
+    document.head.appendChild(meta);
+  }
+  return meta;
+}
+
+function updateThemeColor(isDark: boolean) {
+  const color = isDark ? DARK_BG : LIGHT_BG;
+  getOrCreateMeta('theme-color').content = color;
+  // iOS Safari standalone / PWA status bar
+  getOrCreateMeta('apple-mobile-web-app-capable').content = 'yes';
+  getOrCreateMeta('apple-mobile-web-app-status-bar-style').content = isDark ? 'black-translucent' : 'default';
+}
+
+// Set immediately on module load (before React renders) so Safari picks it up ASAP
+updateThemeColor(getSystemPreference());
+
+export function ThemeProvider({ children }: { children: ReactNode }) {
+  const [isDark, setIsDark] = useState(getSystemPreference);
+
+  // Apply theme class + Safari theme-color on mount and on every toggle
   useEffect(() => {
     setThemeClass(isDark ? 'dark' : 'light');
+    updateThemeColor(isDark);
   }, [isDark]);
+
+  // Listen for system theme changes (e.g. user switches OS dark/light mode)
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    const handler = (e: MediaQueryListEvent) => setIsDark(e.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, []);
 
   const toggle = useCallback(() => setIsDark(d => !d), []);
 

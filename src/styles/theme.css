@@ -1,104 +1,122 @@
-@custom-variant dark (&:is(.dark *));
-
 /* ═══ FORMLESS theme tokens ═══ */
+
+/* Kill default tap-highlight glow on touch devices */
+*,
+*::before,
+*::after {
+  -webkit-tap-highlight-color: transparent;
+}
+
 :root.theme-dark {
-  --fm-bg: #08080E;
-  --fm-panel-bg: rgba(13, 13, 20, 0.92);
-  --fm-panel-border: rgba(255, 255, 255, 0.10);
-  --fm-text-primary: rgba(255, 255, 255, 0.90);
-  --fm-text-secondary: rgba(255, 255, 255, 0.55);
-  --fm-text-muted: rgba(255, 255, 255, 0.35);
-  --fm-accent: #00FFD1;
-  --fm-accent-rgb: 0, 255, 209;
-  --fm-knob-track: rgba(255, 255, 255, 0.12);
-  --fm-canvas-bg: #08080E;
-  --fm-scrollbar-thumb: rgba(0, 255, 209, 0.3);
-  --fm-scrollbar-thumb-hover: rgba(0, 255, 209, 0.6);
-  --fm-scrollbar-track: rgba(255, 255, 255, 0.05);
-  --fm-btn-bg: rgba(255, 255, 255, 0.06);
-  --fm-btn-bg-active: rgba(0, 255, 209, 0.10);
-  --fm-btn-border: rgba(255, 255, 255, 0.12);
-  --fm-btn-border-active: rgba(0, 255, 209, 0.25);
-  --fm-divider: rgba(255, 255, 255, 0.08);
-  --fm-section-btn-bg: rgba(8, 8, 14, 0.60);
-  --fm-section-btn-border: rgba(255, 255, 255, 0.06);
-  --fm-section-btn-border-hover: rgba(0, 255, 209, 0.30);
-  --fm-knob-bg: rgba(255, 255, 255, 0.06);
-  --fm-knob-border: rgba(255, 255, 255, 0.10);
+  --fm-bg: #0A0A0B;
+  --fm-panel-bg: rgba(28, 14, 6, 0.85);
+  --fm-panel-border: rgba(49, 28, 14, 0.6);
+  --fm-text-primary: #F9D6B6;
+  --fm-text-secondary: rgba(249, 214, 182, 0.55);
+  --fm-text-muted: rgba(249, 214, 182, 0.28);
+  --fm-accent: #F59546;
+  --fm-accent-rgb: 245, 149, 70;
+  --fm-accent-dim: #F9D6B6;
+  --fm-accent-dim-rgb: 249, 214, 182;
+  --fm-knob-track: rgba(49, 28, 14, 0.6);
+  --fm-canvas-bg: #06050A;
+  --fm-scrollbar-thumb: rgba(245, 149, 70, 0.3);
+  --fm-scrollbar-thumb-hover: rgba(245, 149, 70, 0.6);
+  --fm-scrollbar-track: rgba(49, 28, 14, 0.15);
+  --fm-btn-bg: rgba(28, 14, 6, 0.5);
+  --fm-btn-bg-active: rgba(245, 149, 70, 0.13);
+  --fm-btn-border: rgba(49, 28, 14, 0.55);
+  --fm-btn-border-active: rgba(245, 149, 70, 0.5);
+  --fm-divider: rgba(49, 28, 14, 0.5);
+  --fm-section-btn-bg: rgba(49, 28, 14, 0.4);
+  --fm-section-btn-border: rgba(49, 28, 14, 0.7);
+  --fm-section-btn-border-hover: rgba(245, 149, 70, 0.35);
+  --fm-knob-bg: rgba(28, 14, 6, 0.4);
+  --fm-knob-border: rgba(49, 28, 14, 0.5);
   --fm-knob-arc-width: 2;
+  --fm-knob-shadow: inset 0 1px 0 rgba(249,214,182,0.07), inset 0 -1px 0 rgba(0,0,0,0.3), 0 2px 6px rgba(0,0,0,0.4);
+  --fm-knob-shadow-active: inset 0 1px 0 rgba(249,214,182,0.04), inset 0 -1px 0 rgba(0,0,0,0.4), 0 1px 3px rgba(0,0,0,0.5);
   --fm-vignette: rgba(0, 0, 0, 0.25);
   --fm-vignette-edge: rgba(0, 0, 0, 0.5);
   --fm-scanline-opacity: 0.08;
-  --fm-phosphor: rgba(0, 255, 180, 0.035);
+  --fm-phosphor: rgba(245, 149, 70, 0.02);
   --fm-osc-bg: rgba(0, 0, 0, 0.25);
-  --fm-osc-border: rgba(255, 255, 255, 0.10);
+  --fm-osc-border: rgba(49, 28, 14, 0.4);
 }
 
 :root.theme-light {
-  --fm-bg: #E8E4DC;
-  --fm-panel-bg: rgba(220, 215, 205, 0.96);
-  --fm-panel-border: rgba(0, 0, 0, 0.12);
-  --fm-text-primary: rgba(20, 22, 28, 0.88);
-  --fm-text-secondary: rgba(20, 22, 28, 0.55);
-  --fm-text-muted: rgba(20, 22, 28, 0.35);
-  --fm-accent: #00897B;
-  --fm-accent-rgb: 0, 137, 123;
-  --fm-knob-track: rgba(0, 0, 0, 0.14);
-  --fm-canvas-bg: #EDEAE2;
-  --fm-scrollbar-thumb: rgba(0, 137, 123, 0.4);
-  --fm-scrollbar-thumb-hover: rgba(0, 137, 123, 0.7);
-  --fm-scrollbar-track: rgba(0, 0, 0, 0.05);
-  --fm-btn-bg: rgba(0, 0, 0, 0.06);
-  --fm-btn-bg-active: rgba(0, 137, 123, 0.18);
-  --fm-btn-border: rgba(0, 0, 0, 0.10);
-  --fm-btn-border-active: rgba(0, 137, 123, 0.55);
-  --fm-divider: rgba(0, 0, 0, 0.08);
-  --fm-section-btn-bg: rgba(220, 215, 205, 0.60);
-  --fm-section-btn-border: rgba(0, 0, 0, 0.06);
-  --fm-section-btn-border-hover: rgba(0, 137, 123, 0.30);
-  --fm-knob-bg: rgba(0, 0, 0, 0.06);
-  --fm-knob-border: rgba(0, 0, 0, 0.10);
+  --fm-bg: #F3F2ED;
+  --fm-panel-bg: rgba(253, 253, 253, 0.88);
+  --fm-panel-border: rgba(180, 160, 140, 0.25);
+  --fm-text-primary: #1C0E06;
+  --fm-text-secondary: rgba(28, 14, 6, 0.55);
+  --fm-text-muted: rgba(28, 14, 6, 0.32);
+  --fm-accent: #2563EB;
+  --fm-accent-rgb: 37, 99, 235;
+  --fm-accent-dim: #93C5FD;
+  --fm-accent-dim-rgb: 147, 197, 253;
+  --fm-knob-track: rgba(37, 99, 235, 0.16);
+  --fm-canvas-bg: #FDFDFD;
+  --fm-scrollbar-thumb: rgba(37, 99, 235, 0.35);
+  --fm-scrollbar-thumb-hover: rgba(37, 99, 235, 0.6);
+  --fm-scrollbar-track: rgba(37, 99, 235, 0.06);
+  --fm-btn-bg: rgba(243, 242, 237, 0.8);
+  --fm-btn-bg-active: rgba(37, 99, 235, 0.10);
+  --fm-btn-border: rgba(180, 160, 140, 0.28);
+  --fm-btn-border-active: rgba(37, 99, 235, 0.45);
+  --fm-divider: rgba(180, 160, 140, 0.3);
+  --fm-section-btn-bg: rgba(243, 242, 237, 0.7);
+  --fm-section-btn-border: rgba(180, 160, 140, 0.3);
+  --fm-section-btn-border-hover: rgba(37, 99, 235, 0.30);
+  --fm-knob-bg: rgba(37, 99, 235, 0.06);
+  --fm-knob-border: rgba(180, 160, 140, 0.22);
   --fm-knob-arc-width: 2.5;
-  --fm-vignette: rgba(180, 170, 155, 0.20);
-  --fm-vignette-edge: rgba(180, 170, 155, 0.35);
+  --fm-knob-shadow: inset 0 1px 0 rgba(255,255,255,0.5), inset 0 -1px 0 rgba(0,0,0,0.06), 0 1px 3px rgba(0,0,0,0.08);
+  --fm-knob-shadow-active: inset 0 1px 0 rgba(255,255,255,0.3), inset 0 -1px 0 rgba(0,0,0,0.08), 0 0px 2px rgba(0,0,0,0.1);
+  --fm-vignette: rgba(160, 120, 70, 0.12);
+  --fm-vignette-edge: rgba(160, 120, 70, 0.22);
   --fm-scanline-opacity: 0.04;
-  --fm-phosphor: rgba(0, 137, 123, 0.02);
-  --fm-osc-bg: rgba(0, 0, 0, 0.06);
-  --fm-osc-border: rgba(0, 0, 0, 0.10);
+  --fm-phosphor: rgba(37, 99, 235, 0.015);
+  --fm-osc-bg: rgba(0, 0, 0, 0.05);
+  --fm-osc-border: rgba(180, 160, 140, 0.22);
 }
 
 /* Default to dark */
 :root:not(.theme-light):not(.theme-dark) {
-  --fm-bg: #08080E;
-  --fm-panel-bg: rgba(13, 13, 20, 0.92);
-  --fm-panel-border: rgba(255, 255, 255, 0.10);
-  --fm-text-primary: rgba(255, 255, 255, 0.90);
-  --fm-text-secondary: rgba(255, 255, 255, 0.55);
-  --fm-text-muted: rgba(255, 255, 255, 0.35);
-  --fm-accent: #00FFD1;
-  --fm-accent-rgb: 0, 255, 209;
-  --fm-knob-track: rgba(255, 255, 255, 0.12);
-  --fm-canvas-bg: #08080E;
-  --fm-scrollbar-thumb: rgba(0, 255, 209, 0.3);
-  --fm-scrollbar-thumb-hover: rgba(0, 255, 209, 0.6);
-  --fm-scrollbar-track: rgba(255, 255, 255, 0.05);
-  --fm-btn-bg: rgba(255, 255, 255, 0.06);
-  --fm-btn-bg-active: rgba(0, 255, 209, 0.10);
-  --fm-btn-border: rgba(255, 255, 255, 0.12);
-  --fm-btn-border-active: rgba(0, 255, 209, 0.25);
-  --fm-divider: rgba(255, 255, 255, 0.08);
-  --fm-section-btn-bg: rgba(8, 8, 14, 0.60);
-  --fm-section-btn-border: rgba(255, 255, 255, 0.06);
-  --fm-section-btn-border-hover: rgba(0, 255, 209, 0.30);
-  --fm-knob-bg: rgba(255, 255, 255, 0.06);
-  --fm-knob-border: rgba(255, 255, 255, 0.10);
+  --fm-bg: #0A0A0B;
+  --fm-panel-bg: rgba(28, 14, 6, 0.85);
+  --fm-panel-border: rgba(49, 28, 14, 0.6);
+  --fm-text-primary: #F9D6B6;
+  --fm-text-secondary: rgba(249, 214, 182, 0.55);
+  --fm-text-muted: rgba(249, 214, 182, 0.28);
+  --fm-accent: #F59546;
+  --fm-accent-rgb: 245, 149, 70;
+  --fm-accent-dim: #F9D6B6;
+  --fm-accent-dim-rgb: 249, 214, 182;
+  --fm-knob-track: rgba(49, 28, 14, 0.6);
+  --fm-canvas-bg: #06050A;
+  --fm-scrollbar-thumb: rgba(245, 149, 70, 0.3);
+  --fm-scrollbar-thumb-hover: rgba(245, 149, 70, 0.6);
+  --fm-scrollbar-track: rgba(49, 28, 14, 0.15);
+  --fm-btn-bg: rgba(28, 14, 6, 0.5);
+  --fm-btn-bg-active: rgba(245, 149, 70, 0.13);
+  --fm-btn-border: rgba(49, 28, 14, 0.55);
+  --fm-btn-border-active: rgba(245, 149, 70, 0.5);
+  --fm-divider: rgba(49, 28, 14, 0.5);
+  --fm-section-btn-bg: rgba(49, 28, 14, 0.4);
+  --fm-section-btn-border: rgba(49, 28, 14, 0.7);
+  --fm-section-btn-border-hover: rgba(245, 149, 70, 0.35);
+  --fm-knob-bg: rgba(28, 14, 6, 0.4);
+  --fm-knob-border: rgba(49, 28, 14, 0.5);
   --fm-knob-arc-width: 2;
+  --fm-knob-shadow: inset 0 1px 0 rgba(249,214,182,0.07), inset 0 -1px 0 rgba(0,0,0,0.3), 0 2px 6px rgba(0,0,0,0.4);
+  --fm-knob-shadow-active: inset 0 1px 0 rgba(249,214,182,0.04), inset 0 -1px 0 rgba(0,0,0,0.4), 0 1px 3px rgba(0,0,0,0.5);
   --fm-vignette: rgba(0, 0, 0, 0.25);
   --fm-vignette-edge: rgba(0, 0, 0, 0.5);
   --fm-scanline-opacity: 0.08;
-  --fm-phosphor: rgba(0, 255, 180, 0.035);
+  --fm-phosphor: rgba(245, 149, 70, 0.02);
   --fm-osc-bg: rgba(0, 0, 0, 0.25);
-  --fm-osc-border: rgba(255, 255, 255, 0.10);
+  --fm-osc-border: rgba(49, 28, 14, 0.4);
 }
 
 /* Global smooth theme transition */
@@ -231,7 +249,16 @@ button, div, span, [role] {
 
 @layer base {
   * {
-    @apply border-border outline-ring/50;
+    @apply border-border;
+  }
+
+  /* Only show focus ring on keyboard navigation, never on tap/click */
+  *:focus-visible {
+    @apply outline-ring/50;
+  }
+  *:focus:not(:focus-visible) {
+    outline: none !important;
+    box-shadow: none !important;
   }
 
   html,

@@ -3,7 +3,7 @@
 // Real-time sound modulation during drawing, Gate/Pulse/Drone mode
 // Left vertical strip layout, centered elements
 
-import { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { AudioEngine, SoundFlavor, PlayMode } from '../utils/audioEngine';
 import { StrokeAnalyzer, Point } from '../utils/strokeAnalyzer';
 import { WaveformVisualizer } from './WaveformVisualizer';
@@ -15,8 +15,64 @@ import { ScaleSelector, RootNote, ScaleType, getRootFrequency, getScaleIntervals
 import { CRTEffect } from './CRTEffect';
 import { FLAVOR_COLORS } from '../utils/flavorColors';
 import { FLAVOR_COLORS_LIGHT } from '../utils/flavorColors';
-import { Eye, EyeOff, Trash2, Sun, Moon } from 'lucide-react';
+import { Eye, EyeOff, Trash2, Sun, Moon, Circle, ZapIcon, Waves, Sparkles, Wind, Hexagon, Disc, Diamond } from 'lucide-react';
 import { useTheme } from './ThemeContext';
+import { RecordButton } from './RecordButton';
+
+// ─── WAV converter ───
+async function webmBlobToWav(webmBlob: Blob): Promise<Blob> {
+  const arrayBuffer = await webmBlob.arrayBuffer();
+  const offlineCtx = new OfflineAudioContext(2, 1, 44100);
+  const decoded = await offlineCtx.decodeAudioData(arrayBuffer);
+
+  const numChannels = decoded.numberOfChannels;
+  const sampleRate = decoded.sampleRate;
+  const length = decoded.length;
+
+  const offline = new OfflineAudioContext(numChannels, length, sampleRate);
+  const source = offline.createBufferSource();
+  source.buffer = decoded;
+  source.connect(offline.destination);
+  source.start(0);
+  const rendered = await offline.startRendering();
+
+  const numSamples = rendered.length;
+  const bitsPerSample = 16;
+  const bytesPerSample = bitsPerSample / 8;
+  const blockAlign = numChannels * bytesPerSample;
+  const byteRate = sampleRate * blockAlign;
+  const dataSize = numSamples * blockAlign;
+  const buffer = new ArrayBuffer(44 + dataSize);
+  const view = new DataView(buffer);
+
+  const writeStr = (offset: number, str: string) => {
+    for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+  };
+  writeStr(0, 'RIFF');
+  view.setUint32(4, 36 + dataSize, true);
+  writeStr(8, 'WAVE');
+  writeStr(12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, numChannels, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, byteRate, true);
+  view.setUint16(32, blockAlign, true);
+  view.setUint16(34, bitsPerSample, true);
+  writeStr(36, 'data');
+  view.setUint32(40, dataSize, true);
+
+  let offset = 44;
+  for (let i = 0; i < numSamples; i++) {
+    for (let ch = 0; ch < numChannels; ch++) {
+      const sample = Math.max(-1, Math.min(1, rendered.getChannelData(ch)[i]));
+      view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7FFF, true);
+      offset += 2;
+    }
+  }
+
+  return new Blob([buffer], { type: 'audio/wav' });
+}
 
 interface Stroke {
   id: string;
@@ -39,18 +95,43 @@ interface VisualPulse {
   duration: number;
 }
 
-const TARGET_FPS = 30;
-const FRAME_INTERVAL = 1000 / TARGET_FPS;
 const LEFT_STRIP_WIDTH = 88;
 const FX_PANEL_WIDTH = 220;
 const FLAVOR_BAR_WIDTH = 400;
 
+// Breakpoints
+const BREAKPOINT_TABLET = 1024;
+const BREAKPOINT_MOBILE = 640;
+
+// Multi-touch pointer state
+interface PointerState {
+  points: Point[];
+  liveStrokeId: string;
+  accPathLen: number;
+}
+
+// Mobile flavor data (icons + labels)
+const MOBILE_FLAVORS: Array<{ type: SoundFlavor; icon: (s: number) => React.ReactNode; label: string }> = [
+  { type: 'sine', icon: (s) => <Circle size={s} />, label: 'SINE' },
+  { type: 'saw', icon: (s) => <ZapIcon size={s} />, label: 'SAW' },
+  { type: 'sub', icon: (s) => <Waves size={s} />, label: 'SUB' },
+  { type: 'grain', icon: (s) => <Sparkles size={s} />, label: 'GRAIN' },
+  { type: 'noise', icon: (s) => <Wind size={s} />, label: 'NOISE' },
+  { type: 'metal', icon: (s) => <Hexagon size={s} />, label: 'METAL' },
+  { type: 'flutter', icon: (s) => <Disc size={s} />, label: 'FLUTTER' },
+  { type: 'crystal', icon: (s) => <Diamond size={s} />, label: 'CRYSTAL' },
+];
+
+const SCALE_OPTIONS: ScaleType[] = ['CHROMATIC', 'MINOR', 'MAJOR', 'PENTATONIC', 'DORIAN', 'PHRYGIAN', 'LYDIAN', 'LOCRIAN', 'WHOLE TONE', 'DIMINISHED'];
+const ROOT_OPTIONS: RootNote[] = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+const OCTAVE_OPTIONS = [1, 2, 3, 4, 5, 6];
+
+const MAX_RECORD_SECONDS = 20;
+
 export function DrawingCanvas() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const audioEngineRef = useRef<AudioEngine>(new AudioEngine());
-  const strokePointsRef = useRef<Point[]>([]);
-  const isDrawingRef = useRef(false);
-  const activePointerRef = useRef<number | null>(null);
+  const activePointersRef = useRef<Map<number, PointerState>>(new Map());
   const [strokes, setStrokes] = useState<Stroke[]>([]);
   const strokesRef = useRef<Stroke[]>([]);
   const [pulses, setPulses] = useState<VisualPulse[]>([]);
@@ -69,18 +150,57 @@ export function DrawingCanvas() {
   const [rootNote, setRootNote] = useState<RootNote>('C');
   const rootNoteRef = useRef<RootNote>('C');
   const [performanceMode, setPerformanceMode] = useState(false);
-  const [playMode, setPlayMode] = useState<PlayMode>('gate');
-  const playModeRef = useRef<PlayMode>('gate');
+  const [playMode, setPlayMode] = useState<PlayMode>('drone');
+  const playModeRef = useRef<PlayMode>('drone');
   const [flavorVolumes, setFlavorVolumes] = useState(audioEngineRef.current.getFlavorVolumes());
   const [sculptorOpen, setSculptorOpen] = useState(true);
 
-  // Octave selector state (default 3, range 1-6)
+  // Responsive breakpoints
+  const [screenWidth, setScreenWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1200);
+  useEffect(() => {
+    const handler = () => setScreenWidth(window.innerWidth);
+    window.addEventListener('resize', handler);
+    return () => window.removeEventListener('resize', handler);
+  }, []);
+  const isDesktop = screenWidth >= BREAKPOINT_TABLET;
+  const isTablet = screenWidth >= BREAKPOINT_MOBILE && screenWidth < BREAKPOINT_TABLET;
+  const isMobile = screenWidth < BREAKPOINT_MOBILE;
+  const isTouch = isTablet || isMobile;
+
+  // Mobile sheets
+  const [instSheetOpen, setInstSheetOpen] = useState(false);
+  const [fxSheetOpen, setFxSheetOpen] = useState(false);
+  const sheetDragRef = useRef<{ startY: number; sheet: 'inst' | 'fx' } | null>(null);
+
+  // Recording
+  type RecordState = 'idle' | 'recording' | 'recorded';
+  const [recordState, setRecordState] = useState<RecordState>('idle');
+  const [recordSeconds, setRecordSeconds] = useState(0);
+  const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null);
+  const recordTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const handleRecordStopRef = useRef<() => Promise<void>>(async () => {});
+
+  const handleSheetDragStart = useCallback((e: React.PointerEvent, sheet: 'inst' | 'fx') => {
+    sheetDragRef.current = { startY: e.clientY, sheet };
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+  }, []);
+  const handleSheetDragMove = useCallback((e: React.PointerEvent) => {
+    if (!sheetDragRef.current) return;
+    const dy = e.clientY - sheetDragRef.current.startY;
+    if (dy > 60) {
+      if (sheetDragRef.current.sheet === 'inst') setInstSheetOpen(false);
+      else setFxSheetOpen(false);
+      sheetDragRef.current = null;
+    }
+  }, []);
+  const handleSheetDragEnd = useCallback(() => {
+    sheetDragRef.current = null;
+  }, []);
+
   const [octave, setOctave] = useState(3);
   const octaveRef = useRef(3);
 
-  // Scale frequency table
   const scaleTableRef = useRef<ScaleNote[]>(buildScaleTable('C', 'MAJOR', 3));
-  // Guide lines: rAF-driven fade envelope (no CSS transitions)
   const [guideVisibleNotes, setGuideVisibleNotes] = useState<ScaleNote[]>([]);
   const guideStartRef = useRef<number | null>(null);
   const guideAnimRef = useRef<number>(0);
@@ -88,18 +208,12 @@ export function DrawingCanvas() {
   const triggerGuideLinesRef = useRef<(table: ScaleNote[], scaleType: ScaleType) => void>(() => {});
   const [rootPulse, setRootPulse] = useState<{ startTime: number } | null>(null);
 
-  // Live stroke tracking
-  const liveStrokeIdRef = useRef<string | null>(null);
-  const accPathLenRef = useRef(0);
   const isDarkRef = useRef(true);
-
-  // Theme
   const { isDark, toggle: toggleTheme } = useTheme();
   useEffect(() => { isDarkRef.current = isDark; }, [isDark]);
   const colorMap = isDark ? FLAVOR_COLORS : FLAVOR_COLORS_LIGHT;
   const flavorColor = colorMap[activeFlavor];
 
-  // Keep refs in sync
   useEffect(() => { activeFlavorRef.current = activeFlavor; }, [activeFlavor]);
   useEffect(() => { scaleRef.current = scale; }, [scale]);
   useEffect(() => { rootNoteRef.current = rootNote; }, [rootNote]);
@@ -109,53 +223,56 @@ export function DrawingCanvas() {
 
   useEffect(() => {
     audioEngineRef.current.initialize();
-    // Set initial scale table
     const table = buildScaleTable('C', 'MAJOR', 3);
     scaleTableRef.current = table;
     audioEngineRef.current.setScaleTable(table);
   }, []);
 
-  // Root note change — retune + radial pulse
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        audioEngineRef.current.resume().catch(() => {});
+        if (activePointersRef.current.size > 0) {
+          activePointersRef.current.forEach((ps) => {
+            audioEngineRef.current.finalizeLiveStroke(ps.liveStrokeId, false);
+          });
+          activePointersRef.current.clear();
+          currentStrokeRef.current = [];
+          setCurrentStrokeForUI([]);
+          setCurrentPitch(null);
+        }
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, []);
+
   const handleRootChange = useCallback((note: RootNote) => {
     const prevRoot = rootNoteRef.current;
     setRootNote(note);
     rootNoteRef.current = note;
     audioEngineRef.current.setRootFrequency(getRootFrequency(note, octaveRef.current));
-
-    // Rebuild scale table
     const table = buildScaleTable(note, scaleRef.current, octaveRef.current);
     scaleTableRef.current = table;
     audioEngineRef.current.setScaleTable(table);
-
-    // Retune active strokes with 300ms glide
     audioEngineRef.current.retuneActiveStrokes();
-
-    // Visual: soft radial pulse from center
     if (prevRoot !== note) {
       setRootPulse({ startTime: Date.now() });
       setTimeout(() => setRootPulse(null), 650);
     }
-
-    // Visual: show guide lines with fade
     triggerGuideLinesRef.current(table, scaleRef.current);
   }, []);
 
-  // ═══════════════════════════════════════════
-  // GUIDE LINES — rAF-driven fade envelope
-  // Fade in 400ms, hold 2500ms, fade out 800ms
-  // ═══════════════════════════════════════════
   const GUIDE_FADE_IN = 400;
   const GUIDE_HOLD = 2500;
   const GUIDE_FADE_OUT = 800;
-  const GUIDE_TOTAL = GUIDE_FADE_IN + GUIDE_HOLD + GUIDE_FADE_OUT; // 3700ms
-
+  const GUIDE_TOTAL = GUIDE_FADE_IN + GUIDE_HOLD + GUIDE_FADE_OUT;
   const NATURAL_NOTES = new Set(['C', 'D', 'E', 'F', 'G', 'A', 'B']);
 
   const filterGuideNotes = useCallback((table: ScaleNote[], scaleType: ScaleType): ScaleNote[] => {
     if (scaleType === 'CHROMATIC') {
-      // For chromatic, only show natural notes (no sharps/flats) to avoid crowding
       return table.filter(n => {
-        const noteName = n.name.replace(/\d+$/, ''); // strip octave number
+        const noteName = n.name.replace(/\d+$/, '');
         return NATURAL_NOTES.has(noteName);
       });
     }
@@ -165,25 +282,19 @@ export function DrawingCanvas() {
   const updateGuideLines = useCallback(() => {
     if (guideStartRef.current === null) return;
     const elapsed = Date.now() - guideStartRef.current;
-
     let opacity: number;
     if (elapsed < GUIDE_FADE_IN) {
-      // Fade in: 0 → 1 over 400ms
       opacity = elapsed / GUIDE_FADE_IN;
     } else if (elapsed < GUIDE_FADE_IN + GUIDE_HOLD) {
-      // Hold at full
       opacity = 1;
     } else if (elapsed < GUIDE_TOTAL) {
-      // Fade out: 1 → 0 over 800ms
       opacity = 1 - (elapsed - GUIDE_FADE_IN - GUIDE_HOLD) / GUIDE_FADE_OUT;
     } else {
-      // Done — clear
       opacity = 0;
       guideStartRef.current = null;
       setGuideVisibleNotes([]);
       return;
     }
-
     if (guideContainerRef.current) {
       guideContainerRef.current.style.opacity = String(opacity);
     }
@@ -191,57 +302,38 @@ export function DrawingCanvas() {
   }, []);
 
   const triggerGuideLines = useCallback((table: ScaleNote[], scaleType: ScaleType) => {
-    // Cancel any running animation
     if (guideAnimRef.current) cancelAnimationFrame(guideAnimRef.current);
-    // Filter notes for display density
     const filtered = filterGuideNotes(table, scaleType);
     setGuideVisibleNotes(filtered);
     guideStartRef.current = Date.now();
-    // Kick off rAF loop (container opacity starts at 0, will be set by updateGuideLines)
     guideAnimRef.current = requestAnimationFrame(updateGuideLines);
   }, [filterGuideNotes, updateGuideLines]);
 
-  // Keep ref in sync so handleRootChange/handleScaleChange can call it
   triggerGuideLinesRef.current = triggerGuideLines;
 
-  // Cleanup guide animation on unmount
   useEffect(() => {
     return () => { if (guideAnimRef.current) cancelAnimationFrame(guideAnimRef.current); };
   }, []);
 
-  // Scale change — retune + guide lines
   const handleScaleChange = useCallback((newScale: ScaleType) => {
     setScale(newScale);
     scaleRef.current = newScale;
-
-    // Rebuild scale table
     const table = buildScaleTable(rootNoteRef.current, newScale, octaveRef.current);
     scaleTableRef.current = table;
     audioEngineRef.current.setScaleTable(table);
-
-    // Retune active strokes
     audioEngineRef.current.retuneActiveStrokes();
-
-    // Visual: show guide lines with rAF fade
     triggerGuideLinesRef.current(table, newScale);
   }, []);
 
-  // Octave change — rebuild scale table, retune active strokes with 300ms glide
   const handleOctaveChange = useCallback((newOctave: number) => {
     const oldOctave = octaveRef.current;
     setOctave(newOctave);
     octaveRef.current = newOctave;
     audioEngineRef.current.setRootFrequency(getRootFrequency(rootNoteRef.current, newOctave));
-
-    // Rebuild scale table with new octave range
     const table = buildScaleTable(rootNoteRef.current, scaleRef.current, newOctave);
     scaleTableRef.current = table;
     audioEngineRef.current.setScaleTable(table);
-
-    // Retune active strokes with direct octave ratio shift (300ms glide)
     audioEngineRef.current.retuneForOctaveChange(oldOctave, newOctave);
-
-    // Visual: show guide lines with fade
     triggerGuideLinesRef.current(table, scaleRef.current);
   }, []);
 
@@ -259,7 +351,6 @@ export function DrawingCanvas() {
     return () => window.removeEventListener('resize', resize);
   }, []);
 
-  // Stroke expiry
   useEffect(() => {
     const interval = setInterval(() => {
       const now = Date.now();
@@ -288,13 +379,6 @@ export function DrawingCanvas() {
     audioEngineRef.current.setModulators(settings);
     setModulators(audioEngineRef.current.getModulators());
   }, []);
-
-  const freqToNote = (freq: number): string => {
-    const names = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
-    const c0 = 440 * Math.pow(2, -4.75);
-    const hs = Math.round(12 * Math.log2(freq / c0));
-    return `${names[((hs % 12) + 12) % 12]}${Math.floor(hs / 12)}`;
-  };
 
   const getNextScaleDegree = (freq: number, direction: number): number => {
     const a4 = 440;
@@ -332,53 +416,52 @@ export function DrawingCanvas() {
 
   const handlePlayModeChange = useCallback((mode: PlayMode) => {
     setPlayMode(mode);
-    // Clean break: audio engine fades all strokes over 150ms
     audioEngineRef.current.setPlayMode(mode);
-    // Immediately fade out ALL visual strokes — locked, pulse, and in-flight gate strokes
     setStrokes(prev => prev.map(s => ({
       ...s, locked: false, isPulse: false, fadeOutStart: Date.now(),
     })));
-    // Also clear any in-progress pulses
     setPulses([]);
   }, []);
 
-  // ═══════════════════════════════════════════
-  // POINTER EVENTS — real-time sound modulation
-  // ═══════════════════════════════════════════
   const handlePointerDown = useCallback(async (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (isDrawingRef.current) return;
+    if (activePointersRef.current.size >= 3) return;
     await audioEngineRef.current.resume();
     const canvas = canvasRef.current;
     if (!canvas) return;
-
     canvas.setPointerCapture(e.pointerId);
-    activePointerRef.current = e.pointerId;
-    isDrawingRef.current = true;
-    accPathLenRef.current = 0;
-
     const rect = canvas.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
-    strokePointsRef.current = [{ x, y, time: Date.now() }];
-    currentStrokeRef.current = [{ x, y, time: Date.now() }];
-    setCurrentStrokeForUI([{ x, y, time: Date.now() }]);
-
+    const now = Date.now();
     const isNoiseFlavor = activeFlavorRef.current === 'noise';
     const scaleNote = mapYToScaleFreq(y, canvas.height, scaleTableRef.current);
     const freq = isNoiseFlavor ? 440 : scaleNote.freq;
-    setCurrentPitch(isNoiseFlavor ? null : scaleNote.name);
-
-    const liveId = `live_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
-    liveStrokeIdRef.current = liveId;
+    if (!isNoiseFlavor) setCurrentPitch(scaleNote.name);
+    const liveId = `live_${now}_${Math.random().toString(36).slice(2, 6)}`;
     const panX = x / canvas.width;
     const evictedId = audioEngineRef.current.startLiveStroke(liveId, freq, activeFlavorRef.current, panX, y);
-    if (evictedId) {
-      setStrokes(prev => prev.filter(s => s.id !== evictedId));
-    }
+    if (evictedId) setStrokes(prev => prev.filter(s => s.id !== evictedId));
+    activePointersRef.current.set(e.pointerId, {
+      points: [{ x, y, time: now }],
+      liveStrokeId: liveId,
+      accPathLen: 0,
+    });
+    currentStrokeRef.current = [{ x, y, time: now }];
+    setCurrentStrokeForUI([{ x, y, time: now }]);
   }, []);
 
+  const handleCanvasPointerDownMobile = useCallback(async (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (instSheetOpen || fxSheetOpen) {
+      setInstSheetOpen(false);
+      setFxSheetOpen(false);
+      return;
+    }
+    return handlePointerDown(e);
+  }, [instSheetOpen, fxSheetOpen, handlePointerDown]);
+
   const handlePointerMove = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (!isDrawingRef.current || e.pointerId !== activePointerRef.current) return;
+    const ps = activePointersRef.current.get(e.pointerId);
+    if (!ps) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
@@ -386,35 +469,31 @@ export function DrawingCanvas() {
     const y = e.clientY - rect.top;
     const now = Date.now();
     const point: Point = { x, y, time: now };
-    strokePointsRef.current.push(point);
-    currentStrokeRef.current = [...strokePointsRef.current];
-    setCurrentStrokeForUI([...strokePointsRef.current]);
-
+    ps.points.push(point);
+    const firstPid = activePointersRef.current.keys().next().value;
+    if (firstPid === e.pointerId) {
+      currentStrokeRef.current = [...ps.points];
+      setCurrentStrokeForUI([...ps.points]);
+    }
     const isNoiseFlavor = activeFlavorRef.current === 'noise';
     const scaleNote = mapYToScaleFreq(y, canvas.height, scaleTableRef.current);
     const freq = isNoiseFlavor ? 440 : scaleNote.freq;
     if (!isNoiseFlavor) setCurrentPitch(scaleNote.name);
-
-    const pts = strokePointsRef.current;
-    if (pts.length >= 2 && liveStrokeIdRef.current) {
-      const prev = pts[pts.length - 2];
+    if (ps.points.length >= 2) {
+      const prev = ps.points[ps.points.length - 2];
       const dx = x - prev.x;
       const dy = y - prev.y;
       const segLen = Math.sqrt(dx * dx + dy * dy);
-      accPathLenRef.current += segLen;
+      ps.accPathLen += segLen;
       const dt = (now - prev.time) / 1000 || 0.016;
       const hVelocity = Math.abs(dx) / dt;
       const pointerVelocity = segLen / dt;
-
-      const dirChange = detectDirectionChange(pts);
+      const dirChange = detectDirectionChange(ps.points);
       let freqTarget: number | undefined;
-      if (dirChange !== 0) {
-        freqTarget = getNextScaleDegree(freq, dirChange);
-      }
-
-      audioEngineRef.current.modulateLiveStroke(liveStrokeIdRef.current, {
+      if (dirChange !== 0) freqTarget = getNextScaleDegree(freq, dirChange);
+      audioEngineRef.current.modulateLiveStroke(ps.liveStrokeId, {
         hVelocity,
-        accLength: accPathLenRef.current,
+        accLength: ps.accPathLen,
         pointerVelocity,
         directionChange: dirChange !== 0,
         freqTarget,
@@ -422,55 +501,41 @@ export function DrawingCanvas() {
     }
   }, []);
 
-  const finalizeStroke = useCallback(() => {
-    if (!isDrawingRef.current) return;
-    isDrawingRef.current = false;
-    activePointerRef.current = null;
-    setCurrentPitch(null);
-
-    const points = strokePointsRef.current;
-    strokePointsRef.current = [];
-    currentStrokeRef.current = [];
-    setCurrentStrokeForUI([]);
-
+  const finalizeStroke = useCallback((pointerId: number) => {
+    const ps = activePointersRef.current.get(pointerId);
+    if (!ps) return;
+    activePointersRef.current.delete(pointerId);
+    if (activePointersRef.current.size === 0) {
+      setCurrentPitch(null);
+      currentStrokeRef.current = [];
+      setCurrentStrokeForUI([]);
+    }
+    const points = ps.points;
     if (points.length < 2) {
-      if (liveStrokeIdRef.current) {
-        audioEngineRef.current.finalizeLiveStroke(liveStrokeIdRef.current, false);
-        liveStrokeIdRef.current = null;
-      }
+      audioEngineRef.current.finalizeLiveStroke(ps.liveStrokeId, false);
       return;
     }
-
     const analyzed = StrokeAnalyzer.analyze(points);
     const flavor = activeFlavorRef.current;
     const color = (isDarkRef.current ? FLAVOR_COLORS : FLAVOR_COLORS_LIGHT)[flavor];
     const mode = playModeRef.current;
     const isLocked = mode === 'drone' || mode === 'pulse';
     const isPulse = mode === 'pulse';
-
-    if (liveStrokeIdRef.current) {
-      audioEngineRef.current.finalizeLiveStroke(liveStrokeIdRef.current, isLocked);
-    }
-    const strokeId = liveStrokeIdRef.current || `s_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
-    liveStrokeIdRef.current = null;
-
+    audioEngineRef.current.finalizeLiveStroke(ps.liveStrokeId, isLocked);
     setPulses(prev => [...prev, {
       x: analyzed.startPoint.x, y: analyzed.startPoint.y,
       startTime: Date.now(), duration: 800,
     }]);
-
     const normalized = Math.min(analyzed.length / 800, 1);
-    const duration = (mode === 'drone' || mode === 'pulse') ? Infinity : (4 + normalized * 4) * 1000;
-
+    const duration = isLocked ? Infinity : (4 + normalized * 4) * 1000;
     setStrokes(prev => [...prev, {
-      id: strokeId, points, color, startTime: Date.now(), duration,
+      id: ps.liveStrokeId, points, color, startTime: Date.now(), duration,
       avgY: analyzed.avgY, flavor, locked: isLocked, muted: false, isPulse,
     }]);
   }, []);
 
   const handlePointerFinish = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (e.pointerId !== activePointerRef.current) return;
-    finalizeStroke();
+    finalizeStroke(e.pointerId);
   }, [finalizeStroke]);
 
   const handleClear = useCallback(() => {
@@ -481,9 +546,105 @@ export function DrawingCanvas() {
     audioEngineRef.current.clearAll();
   }, []);
 
-  // ═══════════════════════════════════════════
+  // ─── Recording handlers ───
+  const handleRecordStop = useCallback(async () => {
+    if (recordTimerRef.current) {
+      clearInterval(recordTimerRef.current);
+      recordTimerRef.current = null;
+    }
+    try {
+      const webmBlob = await audioEngineRef.current.stopRecording();
+      const wavBlob = await webmBlobToWav(webmBlob);
+      setRecordedBlob(wavBlob);
+      setRecordState('recorded');
+    } catch (err) {
+      console.error('[FORMLESS] Recording stop failed:', err);
+      setRecordState('idle');
+    }
+  }, []);
+
+  // Keep ref in sync so setInterval closure never goes stale
+  useEffect(() => {
+    handleRecordStopRef.current = handleRecordStop;
+  }, [handleRecordStop]);
+
+  const handleRecordStart = useCallback(async () => {
+    if (playModeRef.current === 'gate') return;
+
+    // Set state FIRST so button updates immediately
+    setRecordState('recording');
+    setRecordSeconds(0);
+    setRecordedBlob(null);
+
+    try {
+      await audioEngineRef.current.resume();
+      audioEngineRef.current.startRecording();
+    } catch (err) {
+      console.error('[FORMLESS] Could not start recording:', err);
+      setRecordState('idle');
+      return;
+    }
+
+    if (recordTimerRef.current) {
+      clearInterval(recordTimerRef.current);
+      recordTimerRef.current = null;
+    }
+
+    recordTimerRef.current = setInterval(() => {
+      setRecordSeconds(prev => {
+        const next = prev + 1;
+        if (next >= MAX_RECORD_SECONDS) {
+          handleRecordStopRef.current();
+        }
+        return next;
+      });
+    }, 1000);
+  }, []);
+
+  const handleRecordDownload = useCallback(() => {
+    if (!recordedBlob) return;
+    const url = URL.createObjectURL(recordedBlob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `formless_${Date.now()}.wav`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+    setRecordedBlob(null);
+    setRecordState('idle');
+    setRecordSeconds(0);
+  }, [recordedBlob]);
+
+  const handleRecordClear = useCallback(() => {
+    if (recordTimerRef.current) {
+      clearInterval(recordTimerRef.current);
+      recordTimerRef.current = null;
+    }
+    if (audioEngineRef.current.isRecording()) {
+      audioEngineRef.current.stopRecording().catch(() => {});
+    }
+    setRecordedBlob(null);
+    setRecordState('idle');
+    setRecordSeconds(0);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (recordTimerRef.current) clearInterval(recordTimerRef.current);
+      if (audioEngineRef.current.isRecording()) audioEngineRef.current.stopRecording();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (playMode === 'gate' && recordState !== 'idle') {
+      if (recordState === 'recording') {
+        handleRecordStop();
+      } else {
+        handleRecordClear();
+      }
+    }
+  }, [playMode]);
+
   // DRAWING — flavor-specific stroke rendering
-  // ═══════════════════════════════════════════
   const drawStroke = (
     ctx: CanvasRenderingContext2D, points: Point[], color: string,
     opacity: number, flavor: SoundFlavor, locked: boolean, muted: boolean
@@ -492,7 +653,6 @@ export function DrawingCanvas() {
     ctx.lineCap = 'round'; ctx.lineJoin = 'round';
     const a = muted ? opacity * 0.2 : opacity;
     const now = Date.now();
-    // Light mode: disable all shadowBlur for GPU performance
     const useShadow = isDarkRef.current;
 
     switch (flavor) {
@@ -548,7 +708,6 @@ export function DrawingCanvas() {
       case 'grain': {
         ctx.shadowBlur = useShadow ? 6 : 0;
         ctx.shadowColor = useShadow ? '#F5E6C8' : 'transparent';
-        // Light mode: cap total particles at 30 for performance
         const maxPoints = useShadow ? points.length : Math.min(points.length, 30);
         for (let i = 0; i < maxPoints; i++) {
           const pi = useShadow ? i : Math.floor(i * points.length / maxPoints);
@@ -567,7 +726,6 @@ export function DrawingCanvas() {
         const isAnimated = locked;
         const undulationPhase = isAnimated ? (now * 0.001 * 0.3 * Math.PI * 2) : 0;
         const undulationAmp = isAnimated ? 4 : 0;
-
         const wavePoints: { x: number; y: number }[] = [];
         let accDist = 0;
         for (let i = 0; i < points.length; i++) {
@@ -579,14 +737,11 @@ export function DrawingCanvas() {
             accDist += segLen;
             const nx = -dy / segLen, ny = dx / segLen;
             const wave = Math.sin(undulationPhase + accDist * 0.02) * undulationAmp;
-            px += nx * wave;
-            py += ny * wave;
+            px += nx * wave; py += ny * wave;
           }
           wavePoints.push({ x: px, y: py });
         }
-
         ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-        // Outer glow layer
         ctx.strokeStyle = `rgba(184,169,201,${a * 0.08})`;
         ctx.lineWidth = 24;
         ctx.shadowBlur = useShadow ? 20 : 0;
@@ -600,11 +755,8 @@ export function DrawingCanvas() {
         }
         ctx.lineTo(wavePoints[wavePoints.length - 1].x, wavePoints[wavePoints.length - 1].y);
         ctx.stroke();
-        // Mid layer
-        ctx.strokeStyle = `rgba(184,169,201,${a * 0.15})`;
-        ctx.lineWidth = 14;
-        ctx.shadowBlur = useShadow ? 12 : 0;
-        ctx.globalAlpha = a * 0.5;
+        ctx.strokeStyle = `rgba(184,169,201,${a * 0.15})`; ctx.lineWidth = 14;
+        ctx.shadowBlur = useShadow ? 12 : 0; ctx.globalAlpha = a * 0.5;
         ctx.beginPath(); ctx.moveTo(wavePoints[0].x, wavePoints[0].y);
         for (let i = 1; i < wavePoints.length - 1; i++) {
           const cpx = (wavePoints[i].x + wavePoints[i + 1].x) / 2;
@@ -613,7 +765,6 @@ export function DrawingCanvas() {
         }
         ctx.lineTo(wavePoints[wavePoints.length - 1].x, wavePoints[wavePoints.length - 1].y);
         ctx.stroke();
-        // Core bright line
         ctx.strokeStyle = color; ctx.lineWidth = 2;
         ctx.shadowBlur = useShadow ? 8 : 0;
         ctx.shadowColor = useShadow ? color : 'transparent';
@@ -701,33 +852,27 @@ export function DrawingCanvas() {
     ctx.globalAlpha = 1; ctx.shadowBlur = 0;
   };
 
-  // Chromatic aberration helper — light mode only
-  // Draws two extra offset passes: R channel +1px, B channel -1px, at 60% intensity
   const drawStrokeWithCA = (
     ctx: CanvasRenderingContext2D, points: Point[], color: string,
     opacity: number, flavor: SoundFlavor, locked: boolean, muted: boolean,
     applyCA: boolean
   ) => {
     if (applyCA && points.length >= 2) {
-      // Red channel offset: +1px X
       ctx.save();
       ctx.translate(1, 0);
       ctx.globalCompositeOperation = 'lighter';
       drawStroke(ctx, points, 'rgba(180,40,40,0.12)', opacity * 0.6, flavor, locked, muted);
       ctx.restore();
-      // Blue channel offset: -1px X
       ctx.save();
       ctx.translate(-1, 0);
       ctx.globalCompositeOperation = 'lighter';
       drawStroke(ctx, points, 'rgba(40,40,180,0.12)', opacity * 0.6, flavor, locked, muted);
       ctx.restore();
     }
-    // Normal pass (always)
     ctx.globalCompositeOperation = 'source-over';
     drawStroke(ctx, points, color, opacity, flavor, locked, muted);
   };
 
-  // Dynamic FPS animation loop: dark=60fps, light=30fps
   useEffect(() => {
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext('2d');
@@ -742,7 +887,7 @@ export function DrawingCanvas() {
       if (timestamp - lastFrameRef.current < frameInterval) return;
       lastFrameRef.current = timestamp;
 
-      ctx.fillStyle = isDarkRef.current ? '#08080E' : '#EDEAE2';
+      ctx.fillStyle = isDarkRef.current ? '#06050A' : '#FDFDFD';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       const now = Date.now();
       const beatDurMs = 60000 / modulators.tempo;
@@ -753,7 +898,6 @@ export function DrawingCanvas() {
         if (stroke.fadeOutStart) {
           opacity = 0.04 * Math.max(0, 1 - (now - stroke.fadeOutStart) / 600);
         } else if (stroke.isPulse) {
-          // PULSE visual sync: pulse glow brightens on beat
           const pulseLen = modulators.pulseLength;
           const phase = beatPhase;
           opacity = phase < pulseLen
@@ -776,28 +920,141 @@ export function DrawingCanvas() {
         }
       });
 
-      const curStroke = currentStrokeRef.current;
-      if (curStroke.length > 1) {
-        const curMap = isDarkRef.current ? FLAVOR_COLORS : FLAVOR_COLORS_LIGHT;
-        drawStroke(ctx, curStroke, curMap[activeFlavorRef.current], 1, activeFlavorRef.current, false, false);
-      }
+      const curMap = isDarkRef.current ? FLAVOR_COLORS : FLAVOR_COLORS_LIGHT;
+      activePointersRef.current.forEach((ps) => {
+        if (ps.points.length > 1) {
+          drawStroke(ctx, ps.points, curMap[activeFlavorRef.current], 1, activeFlavorRef.current, false, false);
+        }
+      });
     };
 
     animationRef.current = requestAnimationFrame(loop);
     return () => { if (animationRef.current) cancelAnimationFrame(animationRef.current); };
   }, [modulators.tempo, modulators.pulseLength]);
 
-  const modeOptions: PlayMode[] = ['gate', 'pulse', 'drone'];
+  const modeOptions: PlayMode[] = ['drone', 'pulse', 'gate'];
+
+  const sheetBaseStyle = (open: boolean): React.CSSProperties => ({
+    position: 'fixed',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    transform: open ? 'translateY(0)' : 'translateY(100%)',
+    transition: open
+      ? 'transform 320ms cubic-bezier(0.22, 1, 0.36, 1)'
+      : 'transform 250ms cubic-bezier(0.4, 0, 1, 1)',
+    zIndex: 50,
+    borderRadius: '16px 16px 0 0',
+    backgroundColor: isDark ? 'var(--fm-panel-bg)' : 'rgba(253, 253, 253, 0.94)',
+    backdropFilter: 'blur(12px)',
+    borderTop: '1px solid var(--fm-panel-border)',
+  });
+
+  const dragHandle = (sheet: 'inst' | 'fx') => {
+    const open = sheet === 'inst' ? instSheetOpen : fxSheetOpen;
+    return (
+      <div
+        style={{ padding: '12px 0 8px', cursor: 'grab', touchAction: 'none' }}
+        onPointerDown={(e) => handleSheetDragStart(e, sheet)}
+        onPointerMove={handleSheetDragMove}
+        onPointerUp={handleSheetDragEnd}
+        onPointerCancel={handleSheetDragEnd}
+      >
+        <div style={{
+          width: 32, height: 4, borderRadius: 2,
+          backgroundColor: isDark ? 'var(--fm-text-muted)' : '#a09a95',
+          opacity: open ? 0.7 : 0.4,
+          transition: 'opacity 400ms ease',
+          margin: '0 auto',
+        }} />
+      </div>
+    );
+  };
+
+  const mobileText = isDark ? 'var(--fm-text-secondary)' : '#817a75';
+  const mobileMutedText = isDark ? 'var(--fm-text-muted)' : '#a09a95';
+  const mobileBtnBg = isDark ? 'var(--fm-btn-bg)' : 'rgba(253, 253, 253, 0.8)';
+  const mobileBtnBorder = isDark ? 'var(--fm-btn-border)' : 'rgba(180, 170, 160, 0.3)';
+
+  const mobileFlavorBtnStyle = (isActive: boolean, color: string): React.CSSProperties => ({
+    width: 'calc(25% - 6px)',
+    height: '44px',
+    fontFamily: 'monospace',
+    fontSize: '9px',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '2px',
+    borderRadius: '6px',
+    color: isActive ? color : mobileText,
+    backgroundColor: isActive ? `${color}18` : mobileBtnBg,
+    border: isActive ? `1.5px solid ${color}40` : `1px solid ${mobileBtnBorder}`,
+    filter: isActive ? `drop-shadow(0 0 4px ${color})` : 'none',
+    cursor: 'pointer',
+    transition: 'all 150ms',
+  });
+
+  const mobileModeBtn = (mode: PlayMode): React.CSSProperties => ({
+    flex: 1,
+    height: '44px',
+    fontFamily: 'monospace',
+    fontSize: '9px',
+    letterSpacing: '0.05em',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: '6px',
+    color: playMode === mode ? 'var(--fm-accent)' : mobileText,
+    backgroundColor: playMode === mode ? 'rgba(var(--fm-accent-rgb), 0.15)' : mobileBtnBg,
+    border: playMode === mode ? '1.5px solid var(--fm-accent)' : `1px solid ${mobileBtnBorder}`,
+    cursor: 'pointer',
+    transition: 'all 150ms',
+  });
+
+  const compactSelectStyle: React.CSSProperties = {
+    fontFamily: 'monospace',
+    fontSize: '9px',
+    letterSpacing: '0.05em',
+    padding: '8px 6px',
+    borderRadius: '6px',
+    color: mobileText,
+    backgroundColor: mobileBtnBg,
+    border: `1px solid ${mobileBtnBorder}`,
+    outline: 'none',
+    width: '100%',
+    appearance: 'none' as const,
+    textAlign: 'center' as const,
+    cursor: 'pointer',
+  };
+
+  const leftStripW = isTablet ? 72 : LEFT_STRIP_WIDTH;
+  const oscWidth = isTablet ? 320 : FLAVOR_BAR_WIDTH;
+
+  // Shared props object for both desktop and mobile RecordButton instances
+  const recordButtonProps = {
+    recordState,
+    recordSeconds,
+    maxSeconds: MAX_RECORD_SECONDS,
+    isMobile,
+    isDark,
+    isGateMode: playMode === 'gate',
+    onStart: handleRecordStart,
+    onStop: handleRecordStop,
+    onDownload: handleRecordDownload,
+    onClear: handleRecordClear,
+  };
 
   return (
     <div className="relative w-full h-full" style={{ backgroundColor: 'var(--fm-bg)', transition: 'background-color 300ms ease' }}>
+      <style>{`@keyframes formless-rec-pulse { 0%,100%{box-shadow:0 0 6px rgba(var(--fm-accent-rgb),0.2)} 50%{box-shadow:0 0 16px rgba(var(--fm-accent-rgb),0.55)} }`}</style>
       <AmbientGrid bpm={modulators.tempo} isDark={isDark} />
 
       <div className="absolute inset-0" style={{ perspective: '1200px', perspectiveOrigin: '50% 50%', backgroundColor: 'var(--fm-canvas-bg)', transition: 'background-color 300ms ease' }}>
         <canvas
           ref={canvasRef}
           className="absolute inset-0 touch-none"
-          onPointerDown={handlePointerDown}
+          onPointerDown={isMobile ? handleCanvasPointerDownMobile : handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerFinish}
           onPointerCancel={handlePointerFinish}
@@ -818,11 +1075,10 @@ export function DrawingCanvas() {
       {showScanlineGlitch && (
         <div className="fixed inset-0 pointer-events-none" style={{
           zIndex: 99, background: 'transparent',
-          backgroundImage: `repeating-linear-gradient(0deg,transparent 0px,transparent 2px,rgba(255,255,255,0.06) 2px,rgba(255,255,255,0.06) 3px),linear-gradient(180deg,transparent 20%,rgba(0,255,209,0.03) 30%,transparent 40%,rgba(255,255,255,0.04) 60%,transparent 70%)`,
+          backgroundImage: `repeating-linear-gradient(0deg,transparent 0px,transparent 2px,rgba(255,255,255,0.06) 2px,rgba(255,255,255,0.06) 3px),linear-gradient(180deg,transparent 20%,rgba(var(--fm-accent-rgb),0.03) 30%,transparent 40%,rgba(255,255,255,0.04) 60%,transparent 70%)`,
         }} />
       )}
 
-      {/* Pitch indicator */}
       {currentPitch && currentStrokeForUI.length > 0 && (
         <div
           className="absolute pointer-events-none px-3 py-1 backdrop-blur-sm border rounded font-mono tracking-wider z-30"
@@ -837,188 +1093,267 @@ export function DrawingCanvas() {
         </div>
       )}
 
-      {/* ═══ TOP ROW: Left Strip + FORMLESS wordmark ═══ */}
-      <div
-        className="fixed top-0 left-0 z-20 pointer-events-none transition-opacity duration-200"
-        style={{
-          padding: '16px',
-          opacity: performanceMode ? 0 : 1,
-        }}
-      >
-        {/* FORMLESS wordmark — left-aligned with buttons */}
+      {/* DESKTOP + TABLET: Left Strip */}
+      {!isMobile && (
         <div
-          className="font-mono opacity-45 tracking-widest select-none"
-          style={{ fontSize: '12px', width: LEFT_STRIP_WIDTH, marginBottom: '16px', color: 'var(--fm-accent)' }}
+          className="fixed top-0 left-0 z-20 pointer-events-none transition-opacity duration-200"
+          style={{ padding: '16px', opacity: performanceMode ? 0 : 1 }}
         >
-          FORMLESS
-        </div>
-
-        {/* Left Strip — column of controls */}
-        <div
-          className="flex flex-col items-center flex-shrink-0 pointer-events-auto"
-          style={{ width: LEFT_STRIP_WIDTH, gap: '8px' }}
-        >
-          {/* Hide/show toggle */}
-          <button
-            onClick={() => setPerformanceMode(!performanceMode)}
-            className="h-10 flex items-center justify-center backdrop-blur-sm border rounded transition-all duration-200"
-            style={{
-              width: '100%',
-              color: 'var(--fm-text-secondary)',
-              borderColor: 'var(--fm-panel-border)',
-              backgroundColor: 'var(--fm-panel-bg)',
-            }}
-            aria-label="Toggle performance mode"
-            title="Performance mode"
-          >
-            <EyeOff size={16} />
-          </button>
-
-          {/* Theme toggle — sun (in dark) / moon (in light) */}
-          <button
-            onClick={toggleTheme}
-            className="h-10 flex items-center justify-center backdrop-blur-sm border rounded transition-all duration-200"
-            style={{
-              width: '100%',
-              color: 'var(--fm-text-secondary)',
-              borderColor: 'var(--fm-panel-border)',
-              backgroundColor: 'var(--fm-panel-bg)',
-            }}
-            aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
-            title={isDark ? 'Light mode' : 'Dark mode'}
-          >
-            {isDark ? <Sun size={16} /> : <Moon size={16} />}
-          </button>
-
-          {/* GATE / PULSE / DRONE — vertical stack */}
-          <div
-            className="flex flex-col font-mono tracking-wider rounded overflow-hidden border backdrop-blur-sm transition-all duration-200"
-            style={{
-              width: '100%',
-              borderColor: 'var(--fm-panel-border)',
-              borderRadius: '4px',
-              backgroundColor: 'var(--fm-panel-bg)',
-            }}
-          >
-            {modeOptions.map(mode => (
-              <button
-                key={mode}
-                onClick={() => handlePlayModeChange(mode)}
-                className="flex items-center justify-center py-1 transition-all duration-200"
-                style={{
-                  fontSize: '9px',
-                  color: playMode === mode ? 'var(--fm-accent)' : 'var(--fm-text-secondary)',
-                  backgroundColor: playMode === mode ? 'var(--fm-btn-bg-active)' : 'transparent',
-                }}
-              >
-                {mode.toUpperCase()}
-              </button>
-            ))}
+          <div className="font-mono tracking-widest select-none"
+            style={{ fontSize: '12px', width: leftStripW, marginBottom: '16px', color: isDark ? 'var(--fm-accent)' : 'var(--fm-text-primary)', opacity: isDark ? 0.45 : 0.4 }}>
+            FORMLESS
           </div>
+          <div className="flex flex-col items-center flex-shrink-0 pointer-events-auto"
+            style={{ width: leftStripW, gap: '8px' }}>
+            <div style={{ display: 'flex', gap: '8px', width: '100%' }}>
+              <button onClick={() => setPerformanceMode(!performanceMode)}
+                className="flex items-center justify-center backdrop-blur-sm border rounded transition-all duration-200"
+                style={{ flex: 1, minHeight: isTouch ? '44px' : undefined, height: isTouch ? undefined : '40px', color: 'var(--fm-text-secondary)', borderColor: 'var(--fm-panel-border)', backgroundColor: 'var(--fm-panel-bg)', cursor: 'pointer' }}
+                aria-label="Toggle performance mode" title="Performance mode">
+                <EyeOff size={16} />
+              </button>
+              <button onClick={toggleTheme}
+                className="flex items-center justify-center backdrop-blur-sm border rounded transition-all duration-200"
+                style={{ flex: 1, minHeight: isTouch ? '44px' : undefined, height: isTouch ? undefined : '40px', color: 'var(--fm-text-secondary)', borderColor: 'var(--fm-panel-border)', backgroundColor: 'var(--fm-panel-bg)', cursor: 'pointer' }}
+                aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}>
+                {isDark ? <Sun size={16} /> : <Moon size={16} />}
+              </button>
+            </div>
+            <div className="flex flex-col font-mono tracking-wider rounded overflow-hidden border backdrop-blur-sm transition-all duration-200"
+              style={{ width: '100%', borderColor: 'var(--fm-panel-border)', borderRadius: '4px', backgroundColor: 'var(--fm-panel-bg)' }}>
+              {modeOptions.map(mode => (
+                <button key={mode} onClick={() => handlePlayModeChange(mode)}
+                  className="flex items-center justify-center py-1 transition-all duration-200"
+                  style={{ fontSize: '9px', minHeight: isTouch ? '36px' : undefined, color: playMode === mode ? 'var(--fm-accent)' : 'var(--fm-text-secondary)', backgroundColor: playMode === mode ? 'var(--fm-btn-bg-active)' : 'transparent', cursor: 'pointer' }}>
+                  {mode.toUpperCase()}
+                </button>
+              ))}
+            </div>
 
-          {/* Clear button */}
-          <button
-            onClick={handleClear}
-            className="h-10 flex items-center justify-center backdrop-blur-sm border rounded transition-all duration-200"
-            style={{ width: '100%', color: 'var(--fm-text-secondary)', borderColor: 'var(--fm-panel-border)', backgroundColor: 'var(--fm-panel-bg)' }}
-            aria-label="Clear all strokes"
-            title="Clear all"
-          >
-            <Trash2 size={16} />
-          </button>
+            {/* Desktop RecordButton — stable imported component */}
+            <RecordButton {...recordButtonProps} />
+
+            <button onClick={handleClear}
+              className="flex items-center justify-center backdrop-blur-sm border rounded transition-all duration-200"
+              style={{ width: '100%', minHeight: isTouch ? '44px' : undefined, height: isTouch ? undefined : '40px', color: 'var(--fm-text-secondary)', borderColor: 'var(--fm-panel-border)', backgroundColor: 'var(--fm-panel-bg)', cursor: 'pointer' }}
+              aria-label="Clear all strokes" title="Clear all">
+              <Trash2 size={16} />
+            </button>
+          </div>
         </div>
-      </div>
+      )}
 
-      {/* Performance mode restore button (always visible) */}
-      {performanceMode && (
-        <button
-          onClick={() => setPerformanceMode(false)}
+      {!isMobile && performanceMode && (
+        <button onClick={() => setPerformanceMode(false)}
           className="fixed top-4 left-4 w-10 h-10 flex items-center justify-center backdrop-blur-sm border rounded transition-all duration-200 z-30"
-          style={{ color: 'var(--fm-accent)', borderColor: 'var(--fm-btn-border-active)', backgroundColor: 'var(--fm-panel-bg)' }}
-          aria-label="Show panels"
-          title="Show panels"
-        >
+          style={{ color: 'var(--fm-accent)', borderColor: 'var(--fm-btn-border-active)', backgroundColor: 'var(--fm-panel-bg)', cursor: 'pointer' }}
+          aria-label="Show panels">
           <Eye size={16} />
         </button>
       )}
 
-      {/* Stroke counter */}
-      {activeCount > 0 && (
+      {!isMobile && activeCount > 0 && (
         <div className="absolute top-5 font-mono opacity-65 pointer-events-none tracking-wider z-20"
-          style={{
-            fontSize: '10px',
-            color: 'var(--fm-accent)',
-            right: sculptorOpen ? 'calc(220px + 40px)' : '40px',
-            transition: 'right 300ms ease-out',
-          }}>
+          style={{ fontSize: '10px', color: 'var(--fm-accent)', right: sculptorOpen ? 'calc(220px + 40px)' : '40px', transition: 'right 300ms ease-out' }}>
           {activeCount.toString().padStart(2, '0')}/24
         </div>
       )}
-      {activeCount > 0 && (
+      {!isMobile && activeCount > 0 && (
         <div className="absolute top-5 flex items-center gap-2 pointer-events-none z-20"
-          style={{
-            right: sculptorOpen ? 'calc(220px + 90px)' : '90px',
-            transition: 'right 300ms ease-out',
-          }}>
+          style={{ right: sculptorOpen ? 'calc(220px + 90px)' : '90px', transition: 'right 300ms ease-out' }}>
           <div className="w-2 h-2 rounded-full animate-pulse" style={{ backgroundColor: 'var(--fm-accent)' }} />
         </div>
       )}
 
-      {/* Oscilloscope — centered, same width as flavor selector */}
-      <div
-        className="z-20 transition-opacity duration-200"
-        style={{
-          position: 'absolute',
-          top: '16px',
-          left: '50%',
-          transform: `translateX(calc(-50% + ${(LEFT_STRIP_WIDTH + 16 - FX_PANEL_WIDTH) / 2}px))`,
-          width: `${FLAVOR_BAR_WIDTH}px`,
-          opacity: performanceMode ? 0 : 1,
-          pointerEvents: performanceMode ? 'none' : 'auto',
-        }}
-      >
-        <WaveformVisualizer
-          audioEngine={audioEngineRef.current}
-        />
+      {/* Desktop/tablet oscilloscope */}
+      {!isMobile && (
+        <div className="z-20 transition-opacity duration-200"
+          style={{ position: 'absolute', top: '16px', left: '50%', transform: `translateX(calc(-50% + ${(leftStripW + 16 - FX_PANEL_WIDTH) / 2}px))`, width: `${oscWidth}px`, opacity: performanceMode ? 0 : 1, pointerEvents: performanceMode ? 'none' : 'auto' }}>
+          <WaveformVisualizer audioEngine={audioEngineRef.current} />
+        </div>
+      )}
+
+      {!isMobile && (
+        <div className="transition-opacity duration-200"
+          style={{ opacity: performanceMode ? 0 : 1, pointerEvents: performanceMode ? 'none' : 'auto' }}>
+          <FlavorSelector activeFlavor={activeFlavor} onSelectFlavor={setActiveFlavor}
+            flavorVolumes={flavorVolumes}
+            onFlavorVolumeChange={(flavor, value) => { audioEngineRef.current.setFlavorVolume(flavor, value); setFlavorVolumes(audioEngineRef.current.getFlavorVolumes()); }}
+            isDark={isDark} />
+        </div>
+      )}
+
+      {!isMobile && (
+        <div className="transition-opacity duration-200"
+          style={{ opacity: performanceMode ? 0 : 1, pointerEvents: performanceMode ? 'none' : 'auto' }}>
+          <ModulatorPanel modulators={modulators} onUpdate={handleModulatorUpdate} playMode={playMode} isOpen={sculptorOpen} onToggle={setSculptorOpen} isTouch={isTouch} />
+        </div>
+      )}
+
+      {!isMobile && (
+        <div className="fixed bottom-6 left-4 z-20 pointer-events-auto transition-opacity duration-200"
+          style={{ opacity: performanceMode ? 0 : 1, pointerEvents: performanceMode ? 'none' : 'auto' }}>
+          <ScaleSelector rootNote={rootNote} scaleType={scale}
+            onRootChange={handleRootChange} onScaleChange={handleScaleChange}
+            stripWidth={leftStripW} octave={octave} onOctaveChange={handleOctaveChange} />
+        </div>
+      )}
+
+      {/* MOBILE-ONLY UI */}
+
+      {isMobile && (
+        <div className="fixed top-3 left-3 font-mono tracking-widest select-none pointer-events-none z-20"
+          style={{ fontSize: '9px', color: isDark ? 'var(--fm-accent)' : '#817a75', opacity: isDark ? 0.45 : 0.7 }}>
+          FORMLESS
+        </div>
+      )}
+
+      {isMobile && activeCount > 0 && (
+        <div className="fixed top-3.5 right-3.5 flex items-center gap-1.5 pointer-events-none z-20">
+          <div className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ backgroundColor: 'var(--fm-accent)' }} />
+          <span className="font-mono opacity-65 tracking-wider" style={{ fontSize: '10px', color: 'var(--fm-accent)' }}>
+            {activeCount.toString().padStart(2, '0')}/24
+          </span>
+        </div>
+      )}
+
+      {isMobile && (
+        <div className="z-20" style={{
+          position: 'fixed', top: '28px', left: '50%',
+          transform: 'translateX(-50%)',
+          width: 'calc(100vw - 140px)', maxWidth: '200px',
+          pointerEvents: 'none',
+        }}>
+          <WaveformVisualizer audioEngine={audioEngineRef.current} />
+        </div>
+      )}
+
+      {isMobile && (
+        <button onClick={() => { setInstSheetOpen(v => !v); setFxSheetOpen(false); }}
+          className="fixed z-40 flex items-center justify-center font-mono tracking-wider"
+          style={{ bottom: '24px', left: '16px', width: '52px', height: '52px', backgroundColor: instSheetOpen ? 'rgba(var(--fm-accent-rgb), 0.15)' : (isDark ? 'var(--fm-panel-bg)' : 'rgba(253, 253, 253, 0.85)'), border: instSheetOpen ? '1.5px solid var(--fm-accent)' : `1px solid ${isDark ? 'var(--fm-panel-border)' : 'rgba(180, 170, 160, 0.3)'}`, borderRadius: '10px', color: instSheetOpen ? 'var(--fm-accent)' : (isDark ? 'var(--fm-text-secondary)' : '#817a75'), backdropFilter: 'blur(8px)', fontSize: '9px', cursor: 'pointer' }}
+          aria-label="Open instrument panel">
+          INST
+        </button>
+      )}
+
+      {isMobile && (
+        <button onClick={() => { setFxSheetOpen(v => !v); setInstSheetOpen(false); }}
+          className="fixed z-40 flex items-center justify-center font-mono tracking-wider"
+          style={{ bottom: '24px', right: '16px', width: '52px', height: '52px', backgroundColor: fxSheetOpen ? 'rgba(var(--fm-accent-rgb), 0.15)' : (isDark ? 'var(--fm-panel-bg)' : 'rgba(253, 253, 253, 0.85)'), border: fxSheetOpen ? '1.5px solid var(--fm-accent)' : `1px solid ${isDark ? 'var(--fm-panel-border)' : 'rgba(180, 170, 160, 0.3)'}`, borderRadius: '10px', color: fxSheetOpen ? 'var(--fm-accent)' : (isDark ? 'var(--fm-text-secondary)' : '#817a75'), backdropFilter: 'blur(8px)', fontSize: '9px', cursor: 'pointer' }}
+          aria-label="Open Sound Sculptor">
+          FX
+        </button>
+      )}
+
+      {isMobile && (
+        <div className="fixed z-40 flex items-center gap-3" style={{ bottom: '24px', left: '50%', transform: 'translateX(-50%)' }}>
+          <div style={{
+            width: recordState === 'idle' ? '68px' : recordState === 'recording' ? '140px' : '130px',
+            transition: 'width 200ms ease',
+          }}>
+            {/* Mobile RecordButton — stable imported component */}
+            <RecordButton {...recordButtonProps} />
+          </div>
+          <button onClick={handleClear}
+            className="flex items-center justify-center"
+            style={{ width: '52px', height: '52px', backgroundColor: isDark ? 'var(--fm-panel-bg)' : 'rgba(253, 253, 253, 0.85)', border: `1px solid ${isDark ? 'var(--fm-panel-border)' : 'rgba(180, 170, 160, 0.3)'}`, borderRadius: '10px', color: isDark ? 'var(--fm-text-secondary)' : '#817a75', backdropFilter: 'blur(8px)', flexShrink: 0, cursor: 'pointer' }}
+            aria-label="Clear all strokes">
+            <Trash2 size={18} />
+          </button>
+        </div>
+      )}
+
+      {/* MOBILE: Instrument Sheet */}
+      <div style={sheetBaseStyle(isMobile && instSheetOpen)}>
+        {dragHandle('inst')}
+        <div style={{
+          padding: '0 16px 24px',
+          opacity: instSheetOpen ? 1 : 0,
+          transform: instSheetOpen ? 'scale(1)' : 'scale(0.98)',
+          transition: instSheetOpen
+            ? 'opacity 200ms ease 80ms, transform 200ms ease 80ms'
+            : 'opacity 150ms ease, transform 150ms ease',
+        }}>
+          <div className="font-mono tracking-widest" style={{ fontSize: '9px', color: mobileMutedText, marginBottom: '12px' }}>SOUND GENERATOR</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+            {MOBILE_FLAVORS.map(({ type, icon, label }) => {
+              const isAct = activeFlavor === type;
+              const c = colorMap[type];
+              return (
+                <button key={type} onClick={() => setActiveFlavor(type)} style={mobileFlavorBtnStyle(isAct, c)}>
+                  {icon(14)}
+                  <span style={{ fontSize: '8px' }}>{label}</span>
+                </button>
+              );
+            })}
+          </div>
+          <div className="font-mono tracking-widest" style={{ fontSize: '9px', color: mobileMutedText, marginTop: '16px', marginBottom: '12px' }}>MODE</div>
+          <div style={{ display: 'flex', gap: '6px' }}>
+            {modeOptions.map(mode => (
+              <button key={mode} onClick={() => handlePlayModeChange(mode)} style={mobileModeBtn(mode)}>
+                {mode.toUpperCase()}
+              </button>
+            ))}
+          </div>
+          <div style={{ display: 'flex', gap: '8px', marginTop: '16px' }}>
+            <div style={{ flex: 1 }}>
+              <div className="font-mono tracking-widest" style={{ fontSize: '8px', color: mobileMutedText, marginBottom: '4px' }}>SCALE</div>
+              <select value={scale} onChange={(e) => handleScaleChange(e.target.value as ScaleType)} style={compactSelectStyle}>
+                {SCALE_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </div>
+            <div style={{ flex: 0.6 }}>
+              <div className="font-mono tracking-widest" style={{ fontSize: '8px', color: mobileMutedText, marginBottom: '4px' }}>ROOT</div>
+              <select value={rootNote} onChange={(e) => handleRootChange(e.target.value as RootNote)} style={compactSelectStyle}>
+                {ROOT_OPTIONS.map(n => <option key={n} value={n}>{n}</option>)}
+              </select>
+            </div>
+            <div style={{ flex: 0.4 }}>
+              <div className="font-mono tracking-widest" style={{ fontSize: '8px', color: mobileMutedText, marginBottom: '4px' }}>OCT</div>
+              <select value={octave} onChange={(e) => handleOctaveChange(Number(e.target.value))} style={compactSelectStyle}>
+                {OCTAVE_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
+              </select>
+            </div>
+          </div>
+          <div style={{ marginTop: '16px', display: 'flex', gap: '6px' }}>
+            <button onClick={toggleTheme}
+              style={{ flex: 1, height: '36px', fontFamily: 'monospace', fontSize: '9px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', borderRadius: '6px', color: mobileText, backgroundColor: mobileBtnBg, border: `1px solid ${mobileBtnBorder}`, cursor: 'pointer' }}>
+              {isDark ? <Sun size={12} /> : <Moon size={12} />}
+              {isDark ? 'LIGHT' : 'DARK'}
+            </button>
+          </div>
+        </div>
       </div>
 
-      {/* Flavor selector */}
-      <div className="transition-opacity duration-200"
-        style={{ opacity: performanceMode ? 0 : 1, pointerEvents: performanceMode ? 'none' : 'auto' }}>
-        <FlavorSelector
-          activeFlavor={activeFlavor}
-          onSelectFlavor={setActiveFlavor}
-          flavorVolumes={flavorVolumes}
-          onFlavorVolumeChange={(flavor, value) => {
-            audioEngineRef.current.setFlavorVolume(flavor, value);
-            setFlavorVolumes(audioEngineRef.current.getFlavorVolumes());
-          }}
-          isDark={isDark}
-        />
-      </div>
-
-      {/* Sound Sculptor Panel */}
-      <div className="transition-opacity duration-200"
-        style={{ opacity: performanceMode ? 0 : 1, pointerEvents: performanceMode ? 'none' : 'auto' }}>
-        <ModulatorPanel modulators={modulators} onUpdate={handleModulatorUpdate} playMode={playMode} isOpen={sculptorOpen} onToggle={setSculptorOpen} />
-      </div>
-
-      {/* ═══ Root change radial pulse ═══ */}
-      {rootPulse && (
-        <div
-          className="fixed inset-0 pointer-events-none flex items-center justify-center"
-          style={{ zIndex: 15 }}
-        >
+      {/* MOBILE: FX Sheet */}
+      <div style={{ ...sheetBaseStyle(isMobile && fxSheetOpen), height: '80vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        {dragHandle('fx')}
+        <div style={{
+          flex: 1, minHeight: 0, overflow: 'hidden', position: 'relative',
+          opacity: fxSheetOpen ? 1 : 0,
+          transform: fxSheetOpen ? 'scale(1)' : 'scale(0.98)',
+          transition: fxSheetOpen
+            ? 'opacity 200ms ease 80ms, transform 200ms ease 80ms'
+            : 'opacity 150ms ease, transform 150ms ease',
+        }}>
+          <ModulatorPanel modulators={modulators} onUpdate={handleModulatorUpdate} playMode={playMode} isOpen={true} mobileMode={true} />
           <div
             style={{
-              width: 0,
-              height: 0,
-              borderRadius: '50%',
-              background: `radial-gradient(circle, rgba(var(--fm-accent-rgb),0.15) 0%, transparent 70%)`,
-              transform: `translateX(${(LEFT_STRIP_WIDTH + 16 - FX_PANEL_WIDTH) / 2}px)`,
-              animation: 'rootPulseAnim 600ms ease-out forwards',
+              position: 'absolute', bottom: 0, left: 0, right: 0, height: '48px',
+              background: isDark
+                ? 'linear-gradient(to top, rgba(13,15,20,1) 0%, rgba(13,15,20,1) 10%, rgba(13,15,20,0) 100%)'
+                : 'linear-gradient(to top, rgba(253,253,253,1) 0%, rgba(253,253,253,1) 10%, rgba(253,253,253,0) 100%)',
+              pointerEvents: 'none', zIndex: 10,
             }}
           />
+        </div>
+      </div>
+
+      {/* Root change radial pulse */}
+      {rootPulse && (
+        <div className="fixed inset-0 pointer-events-none flex items-center justify-center" style={{ zIndex: 15 }}>
+          <div style={{ width: 0, height: 0, borderRadius: '50%', background: `radial-gradient(circle, rgba(var(--fm-accent-rgb),0.15) 0%, transparent 70%)`, transform: isMobile ? 'none' : `translateX(${(leftStripW + 16 - FX_PANEL_WIDTH) / 2}px)`, animation: 'rootPulseAnim 600ms ease-out forwards' }} />
           <style>{`
             @keyframes rootPulseAnim {
               0% { width: 100px; height: 100px; opacity: 0; }
@@ -1029,13 +1364,9 @@ export function DrawingCanvas() {
         </div>
       )}
 
-      {/* ═══ Scale change guide lines ═══ */}
+      {/* Scale change guide lines */}
       {guideVisibleNotes.length > 0 && (
-        <div
-          className="fixed inset-0 pointer-events-none"
-          ref={guideContainerRef}
-          style={{ opacity: 0, zIndex: 15 }}
-        >
+        <div className="fixed inset-0 pointer-events-none" ref={guideContainerRef} style={{ opacity: 0, zIndex: 15 }}>
           {guideVisibleNotes.map((note, i) => {
             const total = guideVisibleNotes.length;
             const yNorm = total > 1 ? 1 - (i / (total - 1)) : 0.5;
@@ -1043,29 +1374,9 @@ export function DrawingCanvas() {
             const labelWidth = note.name.length * 5.4 + 8;
             const lineLeft = labelWidth + 12;
             return (
-              <div
-                key={`${note.name}-${i}`}
-                className="absolute left-0 right-0"
-                style={{ top: yPos }}
-              >
-                <div
-                  className="absolute right-0"
-                  style={{
-                    left: `${lineLeft}px`,
-                    height: '1px',
-                    backgroundColor: 'var(--fm-divider)',
-                  }}
-                />
-                <span
-                  className="absolute font-mono select-none"
-                  style={{
-                    left: '8px',
-                    top: '-5px',
-                    fontSize: '9px',
-                    color: 'var(--fm-text-muted)',
-                    lineHeight: 1,
-                  }}
-                >
+              <div key={`${note.name}-${i}`} className="absolute left-0 right-0" style={{ top: yPos }}>
+                <div className="absolute right-0" style={{ left: `${lineLeft}px`, height: '1px', backgroundColor: 'var(--fm-divider)' }} />
+                <span className="absolute font-mono select-none" style={{ left: '8px', top: '-5px', fontSize: '9px', color: 'var(--fm-text-muted)', lineHeight: 1 }}>
                   {note.name}
                 </span>
               </div>
@@ -1073,23 +1384,6 @@ export function DrawingCanvas() {
           })}
         </div>
       )}
-
-      {/* ═══ BOTTOM-LEFT: Root note + Scale selector ═══ */}
-      <div
-        className="fixed bottom-6 left-4 z-20 pointer-events-auto transition-opacity duration-200"
-        style={{
-          opacity: performanceMode ? 0 : 1,
-          pointerEvents: performanceMode ? 'none' : 'auto',
-        }}
-      >
-        <ScaleSelector
-          rootNote={rootNote} scaleType={scale}
-          onRootChange={handleRootChange} onScaleChange={handleScaleChange}
-          stripWidth={LEFT_STRIP_WIDTH}
-          octave={octave}
-          onOctaveChange={handleOctaveChange}
-        />
-      </div>
 
       <CRTEffect isDark={isDark} />
     </div>

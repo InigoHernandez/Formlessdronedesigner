@@ -283,6 +283,11 @@ export class AudioEngine {
   private lfo1SHInterval: ReturnType<typeof setInterval> | null = null;
   private lfo2SHInterval: ReturnType<typeof setInterval> | null = null;
 
+  // Recording state
+  private mediaRecorder: MediaRecorder | null = null;
+  private recordingChunks: BlobPart[] = [];
+  private recordingStreamDest: MediaStreamAudioDestinationNode | null = null;
+
   private resonancePad: OscillatorNode | null = null;
   private resonancePadGain: GainNode | null = null;
   private resonanceActive = false;
@@ -2426,5 +2431,55 @@ export class AudioEngine {
 
   unfreezeGrainCloud() {
     this.grainCloudFrozenBuffer = null;
+  }
+
+  // ─── Recording ───────────────────────────────────────────────────────────
+  startRecording(): void {
+    if (!this.ctx || !this.analyzer) return;
+    if (this.mediaRecorder?.state === 'recording') return;
+
+    this.recordingStreamDest = this.ctx.createMediaStreamDestination();
+    this.analyzer.connect(this.recordingStreamDest);
+
+    this.recordingChunks = [];
+    this.mediaRecorder = new MediaRecorder(this.recordingStreamDest.stream, {
+      mimeType: MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+        ? 'audio/webm;codecs=opus'
+        : 'audio/webm',
+    });
+
+    this.mediaRecorder.ondataavailable = (e) => {
+      if (e.data.size > 0) this.recordingChunks.push(e.data);
+    };
+
+    this.mediaRecorder.start(100);
+  }
+
+  stopRecording(): Promise<Blob> {
+    return new Promise((resolve, reject) => {
+      if (!this.mediaRecorder) {
+        reject(new Error('No active recording'));
+        return;
+      }
+
+      this.mediaRecorder.onstop = () => {
+        const blob = new Blob(this.recordingChunks, { type: 'audio/webm' });
+        this.recordingChunks = [];
+
+        if (this.recordingStreamDest && this.analyzer) {
+          try { this.analyzer.disconnect(this.recordingStreamDest); } catch (_) {}
+          this.recordingStreamDest = null;
+        }
+
+        resolve(blob);
+      };
+
+      this.mediaRecorder.stop();
+      this.mediaRecorder = null;
+    });
+  }
+
+  isRecording(): boolean {
+    return this.mediaRecorder?.state === 'recording';
   }
 }

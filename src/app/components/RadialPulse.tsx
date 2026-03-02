@@ -46,7 +46,7 @@ export function RadialPulse({ pulses }: RadialPulseProps) {
 
         ctx.beginPath();
         ctx.arc(pulse.x, pulse.y, radius, 0, Math.PI * 2);
-        ctx.strokeStyle = `rgba(0, 255, 209, ${opacity})`;
+        ctx.strokeStyle = `rgba(249, 214, 182, ${opacity})`;
         ctx.lineWidth = 2;
         ctx.stroke();
       });

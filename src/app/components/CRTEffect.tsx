@@ -44,7 +44,7 @@ export function CRTEffect({ isDark = true }: { isDark?: boolean }) {
         style={{
           zIndex: 100,
           inset: '-20px',
-          backgroundColor: 'rgba(0, 255, 180, 0.035)',
+          backgroundColor: 'rgba(245, 149, 70, 0.02)',
         }}
       />
 
