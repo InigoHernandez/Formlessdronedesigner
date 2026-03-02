@@ -1,1 +1,45 @@
-/* Menlo is a system font — no @import needed, just declare fallbacks */
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap');
+
+/* ── Redirect system monospace aliases to JetBrains Mono ── */
+@font-face {
+  font-family: 'ui-monospace';
+  src: local('JetBrains Mono');
+}
+@font-face {
+  font-family: 'SFMono-Regular';
+  src: local('JetBrains Mono');
+}
+@font-face {
+  font-family: 'Menlo';
+  src: local('JetBrains Mono');
+}
+@font-face {
+  font-family: 'Monaco';
+  src: local('JetBrains Mono');
+}
+@font-face {
+  font-family: 'Consolas';
+  src: local('JetBrains Mono');
+}
+@font-face {
+  font-family: 'Courier New';
+  src: local('JetBrains Mono');
+}
+
+/* ── Global font override ── */
+:root {
+  --font-mono: 'JetBrains Mono', monospace;
+}
+
+html, body, * {
+  font-family: 'JetBrains Mono', monospace !important;
+}
+
+.font-mono {
+  font-family: 'JetBrains Mono', monospace !important;
+}
+
+/* ── Protect Orbitron for splash title only ── */
+.fm-splash-title {
+  font-family: 'Orbitron', sans-serif !important;
+}

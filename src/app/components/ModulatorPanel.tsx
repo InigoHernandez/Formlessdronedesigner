@@ -172,7 +172,7 @@ const gridBtnStyle = (on: boolean, mobile?: boolean): React.CSSProperties => ({
   width: '100%',
   height: mobile ? '36px' : '26px',
   fontSize: mobile ? '10px' : '9px',
-  fontFamily: 'monospace',
+  fontFamily: "'JetBrains Mono', monospace",
   letterSpacing: '0.05em',
   borderRadius: '3px',
   display: 'flex',
@@ -344,7 +344,7 @@ function TabBar({
             style={{
               flex: 1,
               height: '32px',
-              fontFamily: 'monospace',
+              fontFamily: "'JetBrains Mono', monospace",
               fontSize: '10px',
               letterSpacing: '0.08em',
               borderRadius: '6px',

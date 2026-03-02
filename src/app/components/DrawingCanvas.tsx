@@ -223,6 +223,7 @@ export function DrawingCanvas() {
 
   useEffect(() => {
     audioEngineRef.current.initialize();
+    audioEngineRef.current.setPlayMode(playMode); // sync initial mode — fixes drone not locking on first load
     const table = buildScaleTable('C', 'MAJOR', 3);
     scaleTableRef.current = table;
     audioEngineRef.current.setScaleTable(table);
@@ -887,7 +888,7 @@ export function DrawingCanvas() {
       if (timestamp - lastFrameRef.current < frameInterval) return;
       lastFrameRef.current = timestamp;
 
-      ctx.fillStyle = isDarkRef.current ? '#06050A' : '#FDFDFD';
+      ctx.fillStyle = isDarkRef.current ? '#08080E' : '#EDEAE2';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       const now = Date.now();
       const beatDurMs = 60000 / modulators.tempo;
@@ -945,7 +946,7 @@ export function DrawingCanvas() {
       : 'transform 250ms cubic-bezier(0.4, 0, 1, 1)',
     zIndex: 50,
     borderRadius: '16px 16px 0 0',
-    backgroundColor: isDark ? 'var(--fm-panel-bg)' : 'rgba(253, 253, 253, 0.94)',
+    backgroundColor: 'var(--fm-panel-bg)',
     backdropFilter: 'blur(12px)',
     borderTop: '1px solid var(--fm-panel-border)',
   });
@@ -962,7 +963,7 @@ export function DrawingCanvas() {
       >
         <div style={{
           width: 32, height: 4, borderRadius: 2,
-          backgroundColor: isDark ? 'var(--fm-text-muted)' : '#a09a95',
+          backgroundColor: 'var(--fm-text-muted)',
           opacity: open ? 0.7 : 0.4,
           transition: 'opacity 400ms ease',
           margin: '0 auto',
@@ -970,11 +971,6 @@ export function DrawingCanvas() {
       </div>
     );
   };
-
-  const mobileText = isDark ? 'var(--fm-text-secondary)' : '#817a75';
-  const mobileMutedText = isDark ? 'var(--fm-text-muted)' : '#a09a95';
-  const mobileBtnBg = isDark ? 'var(--fm-btn-bg)' : 'rgba(253, 253, 253, 0.8)';
-  const mobileBtnBorder = isDark ? 'var(--fm-btn-border)' : 'rgba(180, 170, 160, 0.3)';
 
   const mobileFlavorBtnStyle = (isActive: boolean, color: string): React.CSSProperties => ({
     width: 'calc(25% - 6px)',
@@ -987,9 +983,9 @@ export function DrawingCanvas() {
     justifyContent: 'center',
     gap: '2px',
     borderRadius: '6px',
-    color: isActive ? color : mobileText,
-    backgroundColor: isActive ? `${color}18` : mobileBtnBg,
-    border: isActive ? `1.5px solid ${color}40` : `1px solid ${mobileBtnBorder}`,
+    color: isActive ? color : 'var(--fm-text-secondary)',
+    backgroundColor: isActive ? `${color}18` : 'var(--fm-btn-bg)',
+    border: isActive ? `1.5px solid ${color}40` : '1px solid var(--fm-btn-border)',
     filter: isActive ? `drop-shadow(0 0 4px ${color})` : 'none',
     cursor: 'pointer',
     transition: 'all 150ms',
@@ -1005,9 +1001,9 @@ export function DrawingCanvas() {
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: '6px',
-    color: playMode === mode ? 'var(--fm-accent)' : mobileText,
-    backgroundColor: playMode === mode ? 'rgba(var(--fm-accent-rgb), 0.15)' : mobileBtnBg,
-    border: playMode === mode ? '1.5px solid var(--fm-accent)' : `1px solid ${mobileBtnBorder}`,
+    color: playMode === mode ? 'var(--fm-accent)' : 'var(--fm-text-secondary)',
+    backgroundColor: playMode === mode ? 'rgba(var(--fm-accent-rgb), 0.15)' : 'var(--fm-btn-bg)',
+    border: playMode === mode ? '1.5px solid var(--fm-accent)' : '1px solid var(--fm-btn-border)',
     cursor: 'pointer',
     transition: 'all 150ms',
   });
@@ -1018,9 +1014,9 @@ export function DrawingCanvas() {
     letterSpacing: '0.05em',
     padding: '8px 6px',
     borderRadius: '6px',
-    color: mobileText,
-    backgroundColor: mobileBtnBg,
-    border: `1px solid ${mobileBtnBorder}`,
+    color: 'var(--fm-text-secondary)',
+    backgroundColor: 'var(--fm-btn-bg)',
+    border: '1px solid var(--fm-btn-border)',
     outline: 'none',
     width: '100%',
     appearance: 'none' as const,
@@ -1037,7 +1033,6 @@ export function DrawingCanvas() {
     recordSeconds,
     maxSeconds: MAX_RECORD_SECONDS,
     isMobile,
-    isDark,
     isGateMode: playMode === 'gate',
     onStart: handleRecordStart,
     onStop: handleRecordStop,
@@ -1047,7 +1042,7 @@ export function DrawingCanvas() {
 
   return (
     <div className="relative w-full h-full" style={{ backgroundColor: 'var(--fm-bg)', transition: 'background-color 300ms ease' }}>
-      <style>{`@keyframes formless-rec-pulse { 0%,100%{box-shadow:0 0 6px rgba(var(--fm-accent-rgb),0.2)} 50%{box-shadow:0 0 16px rgba(var(--fm-accent-rgb),0.55)} }`}</style>
+      <style>{`@keyframes formless-rec-pulse { 0%,100%{box-shadow:0 0 6px rgba(239,68,68,0.2)} 50%{box-shadow:0 0 16px rgba(239,68,68,0.55)} }`}</style>
       <AmbientGrid bpm={modulators.tempo} isDark={isDark} />
 
       <div className="absolute inset-0" style={{ perspective: '1200px', perspectiveOrigin: '50% 50%', backgroundColor: 'var(--fm-canvas-bg)', transition: 'background-color 300ms ease' }}>
@@ -1075,7 +1070,7 @@ export function DrawingCanvas() {
       {showScanlineGlitch && (
         <div className="fixed inset-0 pointer-events-none" style={{
           zIndex: 99, background: 'transparent',
-          backgroundImage: `repeating-linear-gradient(0deg,transparent 0px,transparent 2px,rgba(255,255,255,0.06) 2px,rgba(255,255,255,0.06) 3px),linear-gradient(180deg,transparent 20%,rgba(var(--fm-accent-rgb),0.03) 30%,transparent 40%,rgba(255,255,255,0.04) 60%,transparent 70%)`,
+          backgroundImage: `repeating-linear-gradient(0deg,transparent 0px,transparent 2px,rgba(255,255,255,0.06) 2px,rgba(255,255,255,0.06) 3px),linear-gradient(180deg,transparent 20%,rgba(0,255,209,0.03) 30%,transparent 40%,rgba(255,255,255,0.04) 60%,transparent 70%)`,
         }} />
       )}
 
@@ -1099,13 +1094,13 @@ export function DrawingCanvas() {
           className="fixed top-0 left-0 z-20 pointer-events-none transition-opacity duration-200"
           style={{ padding: '16px', opacity: performanceMode ? 0 : 1 }}
         >
-          <div className="font-mono tracking-widest select-none"
-            style={{ fontSize: '12px', width: leftStripW, marginBottom: '16px', color: isDark ? 'var(--fm-accent)' : 'var(--fm-text-primary)', opacity: isDark ? 0.45 : 0.4 }}>
+          <div className="font-mono opacity-45 tracking-widest select-none"
+            style={{ fontSize: '12px', width: leftStripW, marginBottom: '16px', color: 'var(--fm-accent)' }}>
             FORMLESS
           </div>
           <div className="flex flex-col items-center flex-shrink-0 pointer-events-auto"
             style={{ width: leftStripW, gap: '8px' }}>
-            <div style={{ display: 'flex', gap: '8px', width: '100%' }}>
+            <div className="flex w-full" style={{ gap: '6px' }}>
               <button onClick={() => setPerformanceMode(!performanceMode)}
                 className="flex items-center justify-center backdrop-blur-sm border rounded transition-all duration-200"
                 style={{ flex: 1, minHeight: isTouch ? '44px' : undefined, height: isTouch ? undefined : '40px', color: 'var(--fm-text-secondary)', borderColor: 'var(--fm-panel-border)', backgroundColor: 'var(--fm-panel-bg)', cursor: 'pointer' }}
@@ -1203,7 +1198,7 @@ export function DrawingCanvas() {
 
       {isMobile && (
         <div className="fixed top-3 left-3 font-mono tracking-widest select-none pointer-events-none z-20"
-          style={{ fontSize: '9px', color: isDark ? 'var(--fm-accent)' : '#817a75', opacity: isDark ? 0.45 : 0.7 }}>
+          style={{ fontSize: '9px', color: 'var(--fm-accent)', opacity: 0.45 }}>
           FORMLESS
         </div>
       )}
@@ -1221,7 +1216,7 @@ export function DrawingCanvas() {
         <div className="z-20" style={{
           position: 'fixed', top: '28px', left: '50%',
           transform: 'translateX(-50%)',
-          width: 'calc(100vw - 140px)', maxWidth: '200px',
+          width: 'calc((100vw - 80px) * 0.7)', maxWidth: '196px',
           pointerEvents: 'none',
         }}>
           <WaveformVisualizer audioEngine={audioEngineRef.current} />
@@ -1231,7 +1226,7 @@ export function DrawingCanvas() {
       {isMobile && (
         <button onClick={() => { setInstSheetOpen(v => !v); setFxSheetOpen(false); }}
           className="fixed z-40 flex items-center justify-center font-mono tracking-wider"
-          style={{ bottom: '24px', left: '16px', width: '52px', height: '52px', backgroundColor: instSheetOpen ? 'rgba(var(--fm-accent-rgb), 0.15)' : (isDark ? 'var(--fm-panel-bg)' : 'rgba(253, 253, 253, 0.85)'), border: instSheetOpen ? '1.5px solid var(--fm-accent)' : `1px solid ${isDark ? 'var(--fm-panel-border)' : 'rgba(180, 170, 160, 0.3)'}`, borderRadius: '10px', color: instSheetOpen ? 'var(--fm-accent)' : (isDark ? 'var(--fm-text-secondary)' : '#817a75'), backdropFilter: 'blur(8px)', fontSize: '9px', cursor: 'pointer' }}
+          style={{ bottom: '24px', left: '16px', width: '52px', height: '52px', backgroundColor: instSheetOpen ? 'rgba(var(--fm-accent-rgb), 0.15)' : 'var(--fm-panel-bg)', border: instSheetOpen ? '1.5px solid var(--fm-accent)' : '1px solid var(--fm-panel-border)', borderRadius: '8px', color: instSheetOpen ? 'var(--fm-accent)' : 'var(--fm-text-secondary)', backdropFilter: 'blur(8px)', fontSize: '9px', cursor: 'pointer' }}
           aria-label="Open instrument panel">
           INST
         </button>
@@ -1240,16 +1235,16 @@ export function DrawingCanvas() {
       {isMobile && (
         <button onClick={() => { setFxSheetOpen(v => !v); setInstSheetOpen(false); }}
           className="fixed z-40 flex items-center justify-center font-mono tracking-wider"
-          style={{ bottom: '24px', right: '16px', width: '52px', height: '52px', backgroundColor: fxSheetOpen ? 'rgba(var(--fm-accent-rgb), 0.15)' : (isDark ? 'var(--fm-panel-bg)' : 'rgba(253, 253, 253, 0.85)'), border: fxSheetOpen ? '1.5px solid var(--fm-accent)' : `1px solid ${isDark ? 'var(--fm-panel-border)' : 'rgba(180, 170, 160, 0.3)'}`, borderRadius: '10px', color: fxSheetOpen ? 'var(--fm-accent)' : (isDark ? 'var(--fm-text-secondary)' : '#817a75'), backdropFilter: 'blur(8px)', fontSize: '9px', cursor: 'pointer' }}
+          style={{ bottom: '24px', right: '16px', width: '52px', height: '52px', backgroundColor: fxSheetOpen ? 'rgba(var(--fm-accent-rgb), 0.15)' : 'var(--fm-panel-bg)', border: fxSheetOpen ? '1.5px solid var(--fm-accent)' : '1px solid var(--fm-panel-border)', borderRadius: '8px', color: fxSheetOpen ? 'var(--fm-accent)' : 'var(--fm-text-secondary)', backdropFilter: 'blur(8px)', fontSize: '9px', cursor: 'pointer' }}
           aria-label="Open Sound Sculptor">
           FX
         </button>
       )}
 
       {isMobile && (
-        <div className="fixed z-40 flex items-center gap-3" style={{ bottom: '24px', left: '50%', transform: 'translateX(-50%)' }}>
+        <div className="fixed z-40 flex items-center gap-4" style={{ bottom: '24px', left: '50%', transform: 'translateX(-50%)' }}>
           <div style={{
-            width: recordState === 'idle' ? '68px' : recordState === 'recording' ? '140px' : '130px',
+            width: recordState === 'idle' ? '84px' : recordState === 'recording' ? '150px' : '140px',
             transition: 'width 200ms ease',
           }}>
             {/* Mobile RecordButton — stable imported component */}
@@ -1257,9 +1252,9 @@ export function DrawingCanvas() {
           </div>
           <button onClick={handleClear}
             className="flex items-center justify-center"
-            style={{ width: '52px', height: '52px', backgroundColor: isDark ? 'var(--fm-panel-bg)' : 'rgba(253, 253, 253, 0.85)', border: `1px solid ${isDark ? 'var(--fm-panel-border)' : 'rgba(180, 170, 160, 0.3)'}`, borderRadius: '10px', color: isDark ? 'var(--fm-text-secondary)' : '#817a75', backdropFilter: 'blur(8px)', flexShrink: 0, cursor: 'pointer' }}
+            style={{ width: '52px', height: '52px', backgroundColor: 'var(--fm-panel-bg)', border: '1px solid var(--fm-panel-border)', borderRadius: '8px', color: 'var(--fm-text-secondary)', backdropFilter: 'blur(8px)', flexShrink: 0, cursor: 'pointer' }}
             aria-label="Clear all strokes">
-            <Trash2 size={18} />
+            <Trash2 size={16} />
           </button>
         </div>
       )}
@@ -1275,7 +1270,7 @@ export function DrawingCanvas() {
             ? 'opacity 200ms ease 80ms, transform 200ms ease 80ms'
             : 'opacity 150ms ease, transform 150ms ease',
         }}>
-          <div className="font-mono tracking-widest" style={{ fontSize: '9px', color: mobileMutedText, marginBottom: '12px' }}>SOUND GENERATOR</div>
+          <div className="font-mono tracking-widest" style={{ fontSize: '9px', color: 'var(--fm-text-muted)', marginBottom: '12px' }}>SOUND GENERATOR</div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
             {MOBILE_FLAVORS.map(({ type, icon, label }) => {
               const isAct = activeFlavor === type;
@@ -1288,7 +1283,7 @@ export function DrawingCanvas() {
               );
             })}
           </div>
-          <div className="font-mono tracking-widest" style={{ fontSize: '9px', color: mobileMutedText, marginTop: '16px', marginBottom: '12px' }}>MODE</div>
+          <div className="font-mono tracking-widest" style={{ fontSize: '9px', color: 'var(--fm-text-muted)', marginTop: '16px', marginBottom: '12px' }}>MODE</div>
           <div style={{ display: 'flex', gap: '6px' }}>
             {modeOptions.map(mode => (
               <button key={mode} onClick={() => handlePlayModeChange(mode)} style={mobileModeBtn(mode)}>
@@ -1298,19 +1293,19 @@ export function DrawingCanvas() {
           </div>
           <div style={{ display: 'flex', gap: '8px', marginTop: '16px' }}>
             <div style={{ flex: 1 }}>
-              <div className="font-mono tracking-widest" style={{ fontSize: '8px', color: mobileMutedText, marginBottom: '4px' }}>SCALE</div>
+              <div className="font-mono tracking-widest" style={{ fontSize: '8px', color: 'var(--fm-text-muted)', marginBottom: '4px' }}>SCALE</div>
               <select value={scale} onChange={(e) => handleScaleChange(e.target.value as ScaleType)} style={compactSelectStyle}>
                 {SCALE_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
               </select>
             </div>
             <div style={{ flex: 0.6 }}>
-              <div className="font-mono tracking-widest" style={{ fontSize: '8px', color: mobileMutedText, marginBottom: '4px' }}>ROOT</div>
+              <div className="font-mono tracking-widest" style={{ fontSize: '8px', color: 'var(--fm-text-muted)', marginBottom: '4px' }}>ROOT</div>
               <select value={rootNote} onChange={(e) => handleRootChange(e.target.value as RootNote)} style={compactSelectStyle}>
                 {ROOT_OPTIONS.map(n => <option key={n} value={n}>{n}</option>)}
               </select>
             </div>
             <div style={{ flex: 0.4 }}>
-              <div className="font-mono tracking-widest" style={{ fontSize: '8px', color: mobileMutedText, marginBottom: '4px' }}>OCT</div>
+              <div className="font-mono tracking-widest" style={{ fontSize: '8px', color: 'var(--fm-text-muted)', marginBottom: '4px' }}>OCT</div>
               <select value={octave} onChange={(e) => handleOctaveChange(Number(e.target.value))} style={compactSelectStyle}>
                 {OCTAVE_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
               </select>
@@ -1318,7 +1313,7 @@ export function DrawingCanvas() {
           </div>
           <div style={{ marginTop: '16px', display: 'flex', gap: '6px' }}>
             <button onClick={toggleTheme}
-              style={{ flex: 1, height: '36px', fontFamily: 'monospace', fontSize: '9px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', borderRadius: '6px', color: mobileText, backgroundColor: mobileBtnBg, border: `1px solid ${mobileBtnBorder}`, cursor: 'pointer' }}>
+              style={{ flex: 1, height: '36px', fontFamily: 'monospace', fontSize: '9px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', borderRadius: '6px', color: 'var(--fm-text-secondary)', backgroundColor: 'var(--fm-btn-bg)', border: '1px solid var(--fm-btn-border)', cursor: 'pointer' }}>
               {isDark ? <Sun size={12} /> : <Moon size={12} />}
               {isDark ? 'LIGHT' : 'DARK'}
             </button>
@@ -1343,7 +1338,7 @@ export function DrawingCanvas() {
               position: 'absolute', bottom: 0, left: 0, right: 0, height: '48px',
               background: isDark
                 ? 'linear-gradient(to top, rgba(13,15,20,1) 0%, rgba(13,15,20,1) 10%, rgba(13,15,20,0) 100%)'
-                : 'linear-gradient(to top, rgba(253,253,253,1) 0%, rgba(253,253,253,1) 10%, rgba(253,253,253,0) 100%)',
+                : 'linear-gradient(to top, rgba(237,234,226,1) 0%, rgba(237,234,226,1) 10%, rgba(237,234,226,0) 100%)',
               pointerEvents: 'none', zIndex: 10,
             }}
           />

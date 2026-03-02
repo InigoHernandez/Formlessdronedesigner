@@ -114,7 +114,7 @@ export function EnvelopeDisplay({ envAttack, envRelease, playMode = 'gate', temp
       ctx.stroke();
 
       // ∞ label at right end of sustain line
-      ctx.font = '12px monospace';
+      ctx.font = "12px 'JetBrains Mono', monospace";
       ctx.fillStyle = `rgba(${accentRgb},0.5)`;
       ctx.textAlign = 'right';
       ctx.textBaseline = 'bottom';

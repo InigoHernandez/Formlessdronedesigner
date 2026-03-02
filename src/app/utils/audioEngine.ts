@@ -122,14 +122,14 @@ export interface ModulatorSettings {
 }
 
 const FLAVOR_SOURCE_AMPLITUDE: Record<SoundFlavor, number> = {
-  sine:    0.95,
+  sine:    0.65,
   saw:     0.04,
-  sub:     0.90,
-  grain:   0.85,
-  noise:   0.88,
+  sub:     0.60,
+  grain:   0.60,
+  noise:   0.60,
   metal:   0.03,
-  flutter: 0.85,
-  crystal: 0.88,
+  flutter: 0.60,
+  crystal: 0.62,
 };
 
 // Ceilings reducidos 6dB: con 8+ voces en drone, cada voz al techo anterior
@@ -483,11 +483,11 @@ export class AudioEngine {
     this.preCompHighShelf.gain.value = -4;
 
     this.compressor = c.createDynamicsCompressor();
-    this.compressor.threshold.value = -3;
-    this.compressor.ratio.value = 2;
-    this.compressor.knee.value = 6;
-    this.compressor.attack.value = 0.005;
-    this.compressor.release.value = 0.3;
+    this.compressor.threshold.value = -6;
+    this.compressor.ratio.value = 2.5;
+    this.compressor.knee.value = 10;
+    this.compressor.attack.value = 0.010;
+    this.compressor.release.value = 0.8;
 
     this.postCompGain = c.createGain();
     this.postCompGain.gain.value = 0.92;
@@ -1485,7 +1485,7 @@ export class AudioEngine {
     // Cada voz adicional reduce ~7% para mantener la suma bajo -3dBFS.
     // Duck from 2 voices. Target: ~0.28 at 24 voices (max).
     // factor = (1 - floor) / (MAX - 2) = (1 - 0.28) / 22 ≈ 0.0327
-    const duckGain = Math.max(0.28, 1 - Math.max(0, count - 2) * 0.0327);
+    const duckGain = Math.max(0.16, 1 - Math.max(0, count - 2) * 0.055);
     this.strokePool.forEach(s => {
       if (!s.muted) {
         s.flavorGain.gain.setTargetAtTime(duckGain, now, 0.05);
@@ -1998,7 +1998,7 @@ export class AudioEngine {
     const evictedId = this.evictOldest();
     const c = this.ctx;
     const now = c.currentTime;
-    const vol = 0.15;
+    const vol = 0.10;
 
     const envelope = c.createGain();
     envelope.gain.setValueAtTime(0, now);
@@ -2135,7 +2135,7 @@ export class AudioEngine {
       s.liveFilter.frequency.setTargetAtTime(cutoff, now, 0.05);
     }
 
-    const vol = (0.1 + Math.min(params.pointerVelocity / 1200, 1) * 0.25);
+    const vol = (0.08 + Math.min(params.pointerVelocity / 1200, 1) * 0.14);
     s.targetVol = vol;  // keep targetVol in sync — finalizeLiveStroke reads it
     s.envelope.gain.setTargetAtTime(vol, now, 0.05);
 
@@ -2154,7 +2154,7 @@ export class AudioEngine {
       const oOsc = c.createOscillator(); oOsc.type = 'sine';
       oOsc.frequency.setValueAtTime(s.baseFrequency * 2, now);
       const oGain = c.createGain(); oGain.gain.setValueAtTime(0, now);
-      oGain.gain.linearRampToValueAtTime(0.15, now + 0.2);  // was 0.3 — bypassed envelope
+      oGain.gain.linearRampToValueAtTime(0.07, now + 0.2);  // was 0.15 — reduced to prevent harmonic sum overload
       // Route through envelope (not liveFilter directly) so harmonics
       // follow volume modulation and don't bypass the gain envelope.
       oOsc.connect(oGain); oGain.connect(s.envelope);
@@ -2168,7 +2168,7 @@ export class AudioEngine {
       const fOsc = c.createOscillator(); fOsc.type = 'sine';
       fOsc.frequency.setValueAtTime(s.baseFrequency * Math.pow(2, 7 / 12), now);
       const fGain = c.createGain(); fGain.gain.setValueAtTime(0, now);
-      fGain.gain.linearRampToValueAtTime(0.04, now + 0.2);  // was 0.2
+      fGain.gain.linearRampToValueAtTime(0.02, now + 0.2);  // was 0.04 — reduced fifth harmonic
       fOsc.connect(fGain); fGain.connect(s.envelope);
       fOsc.start(now);
       s.liveFifthOsc = fOsc; s.liveFifthGain = fGain;
@@ -2180,7 +2180,7 @@ export class AudioEngine {
       const o2 = c.createOscillator(); o2.type = 'sine';
       o2.frequency.setValueAtTime(s.baseFrequency * 4, now);
       const o2G = c.createGain(); o2G.gain.setValueAtTime(0, now);
-      o2G.gain.linearRampToValueAtTime(0.02, now + 0.2);  // was 0.15
+      o2G.gain.linearRampToValueAtTime(0.008, now + 0.2);  // was 0.02 — reduced 2nd octave harmonic
       o2.connect(o2G); o2G.connect(s.envelope);
       o2.start(now);
       s.live2ndOctaveOsc = o2; s.live2ndOctaveGain = o2G;

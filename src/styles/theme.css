@@ -1,5 +1,36 @@
 /* ═══ FORMLESS theme tokens ═══ */
 
+/* ── JetBrains Mono: redirect system monospace aliases ── */
+@font-face {
+  font-family: 'ui-monospace';
+  src: local('JetBrains Mono');
+}
+@font-face {
+  font-family: 'SFMono-Regular';
+  src: local('JetBrains Mono');
+}
+@font-face {
+  font-family: 'Menlo';
+  src: local('JetBrains Mono');
+}
+@font-face {
+  font-family: 'Monaco';
+  src: local('JetBrains Mono');
+}
+@font-face {
+  font-family: 'Consolas';
+  src: local('JetBrains Mono');
+}
+@font-face {
+  font-family: 'Courier New';
+  src: local('JetBrains Mono');
+}
+
+/* Global font — JetBrains Mono everywhere */
+html, body, input, button, select, textarea {
+  font-family: 'JetBrains Mono', monospace;
+}
+
 /* Kill default tap-highlight glow on touch devices */
 *,
 *::before,
@@ -250,6 +281,7 @@ button, div, span, [role] {
 @layer base {
   * {
     @apply border-border;
+    font-family: 'JetBrains Mono', monospace !important;
   }
 
   /* Only show focus ring on keyboard navigation, never on tap/click */
@@ -275,10 +307,11 @@ button, div, span, [role] {
     @apply bg-background text-foreground;
   }
 
-  /**
-  * Default typography styles for HTML elements (h1-h4, p, label, button, input).
-  * These are in @layer base, so Tailwind utility classes (like text-sm, text-lg) automatically override them.
-  */
+  /* Protect Orbitron for splash screen title only */
+  .fm-splash-title,
+  .fm-splash-title * {
+    font-family: 'Orbitron', sans-serif !important;
+  }
 
   html {
     font-size: var(--font-size);
