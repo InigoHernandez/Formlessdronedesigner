@@ -79,8 +79,8 @@ export function WaveformVisualizer({ audioEngine }: WaveformVisualizerProps) {
     // Choose color based on theme
     const isDark = document.documentElement.classList.contains('theme-dark') ||
                    !document.documentElement.classList.contains('theme-light');
-    const idleColor = isDark ? '#F9D6B6' : '#2563EB';
-    const activeColor = isDark ? '#F59546' : '#2563EB';
+    const idleColor = isDark ? '#FAFAFA' : '#E8531E';
+    const activeColor = isDark ? '#E8531E' : '#E8531E';
     const color = hasAudio ? activeColor : idleColor;
 
     if (!isDark) {
@@ -187,7 +187,7 @@ export function WaveformVisualizer({ audioEngine }: WaveformVisualizerProps) {
         height: '56px',
         background: 'var(--fm-osc-bg, rgba(0, 0, 0, 0.25))',
         border: '1px solid var(--fm-osc-border, rgba(255, 255, 255, 0.10))',
-        borderRadius: '6px',
+        borderRadius: '0',
         overflow: 'hidden',
         boxSizing: 'border-box',
       }}

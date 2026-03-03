@@ -13,6 +13,100 @@ interface Props {
 const GLYPHS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
 const TARGET = 'INITIALIZE SESSION';
 
+// ASCII Dither background — grid of monospaced characters with drift + pulse
+function AsciiDither() {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    let raf: number;
+
+    // Dither charset — ordered from lightest to heaviest
+    const CHARS = ' .:-=+*#%@';
+    const CELL = 10; // px per character cell
+    const FONT_SIZE = 9;
+
+    const draw = () => {
+      const dpr = window.devicePixelRatio || 1;
+      const w = canvas.offsetWidth;
+      const h = canvas.offsetHeight;
+      canvas.width = w * dpr;
+      canvas.height = h * dpr;
+      ctx.scale(dpr, dpr);
+      ctx.clearRect(0, 0, w, h);
+
+      const cols = Math.ceil(w / CELL);
+      const rows = Math.ceil(h / CELL);
+      const t = Date.now() * 0.001;
+
+      ctx.font = `${FONT_SIZE}px 'JetBrains Mono', monospace`;
+      ctx.textBaseline = 'middle';
+      ctx.textAlign = 'center';
+
+      for (let row = 0; row < rows; row++) {
+        for (let col = 0; col < cols; col++) {
+          const cx = col * CELL + CELL / 2;
+          const cy = row * CELL + CELL / 2;
+
+          // Normalized position
+          const nx = col / cols;
+          const ny = row / rows;
+
+          // Radial distance from center
+          const dx = nx - 0.5;
+          const dy = ny - 0.5;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+
+          // Animated noise field — layered sine waves
+          const n1 = Math.sin(nx * 12.0 + t * 0.4) * Math.cos(ny * 8.0 - t * 0.3);
+          const n2 = Math.sin((nx + ny) * 6.0 + t * 0.7) * 0.5;
+          const n3 = Math.cos(dist * 14.0 - t * 0.8) * 0.3;
+          const noise = (n1 + n2 + n3) * 0.5 + 0.5; // 0..1
+
+          // Vignette — darker at edges, brighter at center
+          const vignette = 1.0 - Math.min(dist * 1.6, 1.0);
+          const intensity = noise * vignette;
+
+          // Pick character from density ramp
+          const ci = Math.floor(intensity * (CHARS.length - 1));
+          const ch = CHARS[Math.max(0, Math.min(ci, CHARS.length - 1))];
+          if (ch === ' ') continue;
+
+          // Color: orange-amber tones
+          const brightness = 0.3 + intensity * 0.7;
+          const r = Math.floor(255 * brightness);
+          const g = Math.floor(107 * brightness);
+          const b = Math.floor(43 * brightness * 0.5);
+          const alpha = (0.04 + intensity * 0.14) * vignette;
+
+          ctx.fillStyle = `rgba(${r},${g},${b},${alpha})`;
+          ctx.fillText(ch, cx, cy);
+        }
+      }
+
+      raf = requestAnimationFrame(draw);
+    };
+    draw();
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
+  return (
+    <canvas
+      ref={canvasRef}
+      style={{
+        position: 'absolute',
+        inset: 0,
+        width: '100%',
+        height: '100%',
+        pointerEvents: 'none',
+      }}
+    />
+  );
+}
+
 // Minimal noise canvas — grain overlay
 function useNoise(canvasRef: React.RefObject<HTMLCanvasElement>) {
   useEffect(() => {
@@ -339,7 +433,7 @@ export function SplashScreen({ onEnter }: Props) {
     >
       {/* Keyframes + styles */}
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;800;900&family=VT323&family=JetBrains+Mono:wght@300;400;500;600;700;800&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;800;900&family=VT323&display=swap');
 
         @keyframes fm-flicker {
           0%,100%{opacity:1} 92%{opacity:1} 93%{opacity:0.85} 94%{opacity:1} 96%{opacity:0.9} 97%{opacity:1}
@@ -423,6 +517,9 @@ export function SplashScreen({ onEnter }: Props) {
             `,
           }} />
 
+          {/* ASCII Dither layer */}
+          <AsciiDither />
+
           {/* Grid floor */}
           <div style={{
             position: 'absolute',
@@ -486,7 +583,7 @@ export function SplashScreen({ onEnter }: Props) {
         }}>
           {/* Status bar */}
           <div style={{
-            fontFamily: "'JetBrains Mono', monospace",
+            fontFamily: "'Inter', sans-serif",
             fontSize: '9px',
             letterSpacing: '0.2em',
             color: 'rgba(255,107,43,0.5)',
@@ -556,7 +653,7 @@ export function SplashScreen({ onEnter }: Props) {
 
           {/* Subtitle */}
           <div style={{
-            fontFamily: "'JetBrains Mono', monospace",
+            fontFamily: "'Inter', sans-serif",
             fontWeight: 300,
             fontSize: '12px',
             letterSpacing: '0.35em',
@@ -580,7 +677,7 @@ export function SplashScreen({ onEnter }: Props) {
 
           {/* Description */}
           <p style={{
-            fontFamily: "'JetBrains Mono', monospace",
+            fontFamily: "'Inter', sans-serif",
             fontSize: '12px',
             lineHeight: 1.8,
             letterSpacing: '0.04em',
@@ -604,7 +701,7 @@ export function SplashScreen({ onEnter }: Props) {
             onMouseEnter={startScramble}
             onMouseLeave={stopScramble}
             style={{
-              fontFamily: "'JetBrains Mono', monospace",
+              fontFamily: "'Inter', sans-serif",
               fontSize: '12px',
               letterSpacing: '0.2em',
               color: '#0A0608',
@@ -646,7 +743,7 @@ export function SplashScreen({ onEnter }: Props) {
 
           {/* Made by */}
           <div style={{
-            fontFamily: "'JetBrains Mono', monospace",
+            fontFamily: "'Inter', sans-serif",
             fontSize: '10px',
             letterSpacing: '0.1em',
             color: 'rgba(255,107,43,0.35)',

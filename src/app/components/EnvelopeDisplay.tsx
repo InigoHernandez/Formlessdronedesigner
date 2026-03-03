@@ -10,7 +10,7 @@ import { useTheme } from './ThemeContext';
 
 function getAccentRgb(): string {
   const raw = getComputedStyle(document.documentElement).getPropertyValue('--fm-accent-rgb').trim();
-  return raw || '245, 149, 70';
+  return raw || '232, 83, 30';
 }
 
 interface Props {
@@ -50,14 +50,12 @@ export function EnvelopeDisplay({ envAttack, envRelease, playMode = 'gate', temp
 
     // Clear + rounded background
     ctx.clearRect(0, 0, w, h);
-    ctx.fillStyle = isDark ? 'rgba(28,14,6,0.4)' : 'rgba(210,225,245,0.6)';
+    ctx.fillStyle = isDark ? 'rgba(250,250,250,0.04)' : 'rgba(10,10,11,0.04)';
     ctx.beginPath();
-    const r = 4;
+    const r = 0;
     ctx.moveTo(r, 0); ctx.lineTo(w - r, 0);
-    ctx.quadraticCurveTo(w, 0, w, r); ctx.lineTo(w, h - r);
-    ctx.quadraticCurveTo(w, h, w - r, h); ctx.lineTo(r, h);
-    ctx.quadraticCurveTo(0, h, 0, h - r); ctx.lineTo(0, r);
-    ctx.quadraticCurveTo(0, 0, r, 0);
+    ctx.lineTo(w, 0); ctx.lineTo(w, h);
+    ctx.lineTo(0, h); ctx.lineTo(0, 0);
     ctx.fill();
 
     const pad = 8;
@@ -69,8 +67,8 @@ export function EnvelopeDisplay({ envAttack, envRelease, playMode = 'gate', temp
 
     // Gradient fill
     const grad = ctx.createLinearGradient(0, peak, 0, baseline);
-    grad.addColorStop(0, isDark ? `rgba(${accentRgb},0.15)` : `rgba(37,99,235,0.22)`);
-    grad.addColorStop(1, isDark ? `rgba(${accentRgb},0)` : `rgba(37,99,235,0)`);
+    grad.addColorStop(0, isDark ? `rgba(${accentRgb},0.15)` : `rgba(${accentRgb},0.12)`);
+    grad.addColorStop(1, isDark ? `rgba(${accentRgb},0)` : `rgba(${accentRgb},0)`);
 
     // Helper: draw convex attack bezier (fast initial rise, gentle approach to peak)
     // Control point is high up and early: creates upward-bowing curve
@@ -114,7 +112,7 @@ export function EnvelopeDisplay({ envAttack, envRelease, playMode = 'gate', temp
       ctx.stroke();
 
       // ∞ label at right end of sustain line
-      ctx.font = "12px 'JetBrains Mono', monospace";
+      ctx.font = "12px 'Inter', sans-serif";
       ctx.fillStyle = `rgba(${accentRgb},0.5)`;
       ctx.textAlign = 'right';
       ctx.textBaseline = 'bottom';
@@ -335,7 +333,7 @@ export function EnvelopeDisplay({ envAttack, envRelease, playMode = 'gate', temp
       className="w-full cursor-default"
       style={{
         height: '80px',
-        borderRadius: '4px',
+        borderRadius: '0',
         touchAction: 'none',
         cursor: hoverPoint || dragRef.current ? 'col-resize' : 'default',
       }}

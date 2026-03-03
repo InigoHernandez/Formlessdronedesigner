@@ -94,7 +94,7 @@ function Knob({
     <div className="flex flex-col items-center gap-1" style={{ width: containerW, pointerEvents: 'all', position: 'relative' }}>
       {isDragging && (
         <div
-          className="absolute pointer-events-none font-mono"
+          className="absolute pointer-events-none"
           style={{
             bottom: '100%',
             left: '50%',
@@ -104,7 +104,7 @@ function Knob({
             color: 'var(--fm-accent)',
             backgroundColor: 'var(--fm-panel-bg)',
             border: '1px solid var(--fm-panel-border)',
-            borderRadius: '3px',
+            borderRadius: '0',
             padding: '2px 5px',
             whiteSpace: 'nowrap',
             zIndex: 100,
@@ -158,7 +158,7 @@ function Knob({
         )}
       </div>
       <div
-        className="font-mono tracking-wider text-center whitespace-pre-line leading-tight"
+        className="tracking-wider text-center whitespace-pre-line leading-tight"
         style={{ fontSize: '10px', color: 'var(--fm-text-secondary)', cursor: 'default' }}
       >
         {label}
@@ -172,16 +172,15 @@ const gridBtnStyle = (on: boolean, mobile?: boolean): React.CSSProperties => ({
   width: '100%',
   height: mobile ? '36px' : '26px',
   fontSize: mobile ? '10px' : '9px',
-  fontFamily: "'JetBrains Mono', monospace",
   letterSpacing: '0.05em',
-  borderRadius: '3px',
+  borderRadius: '0',
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
   color: on ? 'var(--fm-accent)' : 'var(--fm-text-secondary)',
   backgroundColor: on ? 'rgba(var(--fm-accent-rgb), 0.15)' : 'var(--fm-btn-bg)',
   border: on ? '1.5px solid var(--fm-accent)' : '1px solid var(--fm-btn-border)',
-  filter: on ? 'drop-shadow(0 0 4px var(--fm-accent))' : 'none',
+  filter: 'none',
   transition: 'all 150ms',
   cursor: 'pointer',
 });
@@ -259,11 +258,11 @@ function SectionHeader({
   onPowerToggle?: (v: boolean) => void;
   mobileMode?: boolean;
 }) {
-  const btnClass = `${mobileMode ? 'w-9 h-9' : 'w-7 h-7'} flex items-center justify-center rounded border transition-all duration-150 active:opacity-60`;
+  const btnClass = `${mobileMode ? 'w-9 h-9' : 'w-7 h-7'} flex items-center justify-center border transition-all duration-150 active:opacity-60`;
   return (
     <div>
       <div className="flex items-center justify-between">
-        <div className="font-mono tracking-widest" style={{ fontSize: mobileMode ? '11px' : '10px', color: 'var(--fm-text-muted)' }}>
+        <div className="tracking-widest" style={{ fontSize: mobileMode ? '11px' : '10px', color: 'var(--fm-text-muted)' }}>
           {label}
         </div>
         <div className="flex gap-1">
@@ -297,7 +296,7 @@ function SectionHeader({
                 borderColor: powerActive ? 'var(--fm-accent)' : 'var(--fm-section-btn-border)',
                 backgroundColor: powerActive ? 'rgba(var(--fm-accent-rgb), 0.15)' : 'var(--fm-section-btn-bg)',
                 border: powerActive ? '1.5px solid var(--fm-accent)' : '1px solid var(--fm-section-btn-border)',
-                filter: powerActive ? 'drop-shadow(0 0 4px var(--fm-accent))' : 'none',
+                filter: 'none',
                 cursor: 'pointer',
               }}
             >
@@ -344,10 +343,9 @@ function TabBar({
             style={{
               flex: 1,
               height: '32px',
-              fontFamily: "'JetBrains Mono', monospace",
               fontSize: '10px',
               letterSpacing: '0.08em',
-              borderRadius: '6px',
+              borderRadius: '0',
               border: isActive
                 ? '1.5px solid var(--fm-accent)'
                 : '1px solid var(--fm-btn-border)',
@@ -787,7 +785,7 @@ export function ModulatorPanel({
 
       {/* LFO 1 */}
       <div>
-        <div className="font-mono tracking-widest" style={{ fontSize: '10px', color: 'var(--fm-text-secondary)', marginBottom: '8px' }}>LFO 1</div>
+        <div className="tracking-widest" style={{ fontSize: '10px', color: 'var(--fm-text-secondary)', marginBottom: '8px' }}>LFO 1</div>
         <div style={knobGrid({ marginTop: '0' })}>
           {K('lfo1Rate', 'RATE', 0.01, 20, m.lfo1Rate)}
           {K('lfo1Depth', 'DEPTH', 0, 1, m.lfo1Depth)}
@@ -840,7 +838,7 @@ export function ModulatorPanel({
 
       {/* LFO 2 */}
       <div>
-        <div className="font-mono tracking-widest" style={{ fontSize: '10px', color: 'var(--fm-text-secondary)', marginBottom: '8px' }}>LFO 2</div>
+        <div className="tracking-widest" style={{ fontSize: '10px', color: 'var(--fm-text-secondary)', marginBottom: '8px' }}>LFO 2</div>
         <div style={knobGrid({ marginTop: '0' })}>
           {K('lfo2Rate', 'RATE', 0.01, 20, m.lfo2Rate)}
           {K('lfo2Depth', 'DEPTH', 0, 1, m.lfo2Depth)}
@@ -902,18 +900,18 @@ export function ModulatorPanel({
 
       {/* Header + zero button */}
       <div className="flex items-center justify-between">
-        <div className="font-mono tracking-widest" style={{ fontSize: '10px', color: 'var(--fm-accent)', opacity: 0.55 }}>
+        <div className="tracking-widest" style={{ fontSize: '10px', color: 'var(--fm-accent)', opacity: 0.55 }}>
           SOUND SCULPTOR
         </div>
         <button
           onClick={zeroAllFx}
           title="Zero all parameters"
-          className="w-7 h-7 flex items-center justify-center rounded border transition-all duration-200 active:opacity-60"
+          className="w-7 h-7 flex items-center justify-center border transition-all duration-200 active:opacity-60"
           style={{
             color: zeroPulse ? 'var(--fm-accent)' : 'var(--fm-text-muted)',
             border: zeroPulse ? '1.5px solid var(--fm-accent)' : '1px solid var(--fm-section-btn-border)',
             backgroundColor: zeroPulse ? 'rgba(var(--fm-accent-rgb), 0.15)' : 'var(--fm-section-btn-bg)',
-            filter: zeroPulse ? 'drop-shadow(0 0 6px var(--fm-accent))' : 'none',
+            filter: 'none',
             cursor: 'pointer',
           }}
         >
@@ -924,7 +922,7 @@ export function ModulatorPanel({
       {/* Knob value HUD — desktop only */}
       {activeKnob && tempVal !== null && (
         <div
-          className="fixed top-2 right-[240px] px-2 py-1 border rounded font-mono whitespace-nowrap z-50"
+          className="fixed top-2 right-[240px] px-2 py-1 border whitespace-nowrap z-50"
           style={{ fontSize: '10px', backgroundColor: 'var(--fm-panel-bg)', borderColor: 'var(--fm-section-btn-border)', color: 'var(--fm-accent)' }}
         >
           {activeKnob.toUpperCase()}: {Math.round((tempVal ?? 0) * 100) / 100}
@@ -1079,7 +1077,7 @@ export function ModulatorPanel({
       <div style={{ pointerEvents: 'all' }}>
         <SectionHeader label="LFO" onReset={resetLfo} onRandomize={randLfo} />
 
-        <div className="font-mono tracking-widest mt-3" style={{ fontSize: '10px', color: 'var(--fm-text-secondary)' }}>LFO 1</div>
+        <div className="tracking-widest mt-3" style={{ fontSize: '10px', color: 'var(--fm-text-secondary)' }}>LFO 1</div>
         <div style={knobGrid({ marginTop: '8px' })}>
           {K('lfo1Rate', 'RATE', 0.01, 20, m.lfo1Rate)}
           {K('lfo1Depth', 'DEPTH', 0, 1, m.lfo1Depth)}
@@ -1129,7 +1127,7 @@ export function ModulatorPanel({
 
         <div className="h-px my-3" style={{ backgroundColor: 'var(--fm-divider)' }} />
 
-        <div className="font-mono tracking-widest" style={{ fontSize: '10px', color: 'var(--fm-text-secondary)' }}>LFO 2</div>
+        <div className="tracking-widest" style={{ fontSize: '10px', color: 'var(--fm-text-secondary)' }}>LFO 2</div>
         <div style={knobGrid({ marginTop: '8px' })}>
           {K('lfo2Rate', 'RATE', 0.01, 20, m.lfo2Rate)}
           {K('lfo2Depth', 'DEPTH', 0, 1, m.lfo2Depth)}
@@ -1213,19 +1211,19 @@ export function ModulatorPanel({
         <div style={{ padding: '0 14px 0', flexShrink: 0 }}>
           {/* Title row */}
           <div className="flex items-center justify-between" style={{ marginBottom: '12px' }}>
-            <div className="font-mono tracking-widest"
+            <div className="tracking-widest"
               style={{ fontSize: '10px', color: 'var(--fm-accent)', opacity: 0.55 }}>
               SOUND SCULPTOR
             </div>
             <button
               onClick={zeroAllFx}
               title="Zero all parameters"
-              className="w-9 h-9 flex items-center justify-center rounded border transition-all duration-200 active:opacity-60"
+              className="w-9 h-9 flex items-center justify-center border transition-all duration-200 active:opacity-60"
               style={{
                 color: zeroPulse ? 'var(--fm-accent)' : 'var(--fm-text-muted)',
                 border: zeroPulse ? '1.5px solid var(--fm-accent)' : '1px solid var(--fm-section-btn-border)',
                 backgroundColor: zeroPulse ? 'rgba(var(--fm-accent-rgb), 0.15)' : 'var(--fm-section-btn-bg)',
-                filter: zeroPulse ? 'drop-shadow(0 0 6px var(--fm-accent))' : 'none',
+                filter: 'none',
                 cursor: 'pointer',
               }}
             >
@@ -1291,7 +1289,7 @@ export function ModulatorPanel({
       <div className="flex flex-col items-end self-start mt-4 gap-1" style={{ pointerEvents: 'auto' }}>
         <button
           onClick={() => handleToggle(!isOpen)}
-          className="w-7 h-10 flex items-center justify-center backdrop-blur-sm border border-r-0 rounded-l transition-all duration-300"
+          className="w-7 h-10 flex items-center justify-center backdrop-blur-sm border border-r-0 transition-all duration-300"
           style={{ backgroundColor: 'var(--fm-panel-bg)', borderColor: 'var(--fm-section-btn-border)' }}
           aria-label={isOpen ? 'Collapse Sound Sculptor panel' : 'Expand Sound Sculptor panel'}
         >
@@ -1302,7 +1300,7 @@ export function ModulatorPanel({
         </button>
       </div>
       <div
-        className="h-full backdrop-blur-sm border-l transition-all duration-300 ease-out overflow-y-auto overflow-x-hidden sculptor-scroll"
+        className="h-full border-l transition-all duration-300 ease-out overflow-y-auto overflow-x-hidden sculptor-scroll"
         ref={scrollRef}
         style={{
           width: isOpen ? '220px' : '0px',

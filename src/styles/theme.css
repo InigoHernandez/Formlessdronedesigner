@@ -1,36 +1,5 @@
 /* ═══ FORMLESS theme tokens ═══ */
 
-/* ── JetBrains Mono: redirect system monospace aliases ── */
-@font-face {
-  font-family: 'ui-monospace';
-  src: local('JetBrains Mono');
-}
-@font-face {
-  font-family: 'SFMono-Regular';
-  src: local('JetBrains Mono');
-}
-@font-face {
-  font-family: 'Menlo';
-  src: local('JetBrains Mono');
-}
-@font-face {
-  font-family: 'Monaco';
-  src: local('JetBrains Mono');
-}
-@font-face {
-  font-family: 'Consolas';
-  src: local('JetBrains Mono');
-}
-@font-face {
-  font-family: 'Courier New';
-  src: local('JetBrains Mono');
-}
-
-/* Global font — JetBrains Mono everywhere */
-html, body, input, button, select, textarea {
-  font-family: 'JetBrains Mono', monospace;
-}
-
 /* Kill default tap-highlight glow on touch devices */
 *,
 *::before,
@@ -40,114 +9,114 @@ html, body, input, button, select, textarea {
 
 :root.theme-dark {
   --fm-bg: #0A0A0B;
-  --fm-panel-bg: rgba(28, 14, 6, 0.85);
-  --fm-panel-border: rgba(49, 28, 14, 0.6);
-  --fm-text-primary: #F9D6B6;
-  --fm-text-secondary: rgba(249, 214, 182, 0.55);
-  --fm-text-muted: rgba(249, 214, 182, 0.28);
-  --fm-accent: #F59546;
-  --fm-accent-rgb: 245, 149, 70;
-  --fm-accent-dim: #F9D6B6;
-  --fm-accent-dim-rgb: 249, 214, 182;
-  --fm-knob-track: rgba(49, 28, 14, 0.6);
-  --fm-canvas-bg: #06050A;
-  --fm-scrollbar-thumb: rgba(245, 149, 70, 0.3);
-  --fm-scrollbar-thumb-hover: rgba(245, 149, 70, 0.6);
-  --fm-scrollbar-track: rgba(49, 28, 14, 0.15);
-  --fm-btn-bg: rgba(28, 14, 6, 0.5);
-  --fm-btn-bg-active: rgba(245, 149, 70, 0.13);
-  --fm-btn-border: rgba(49, 28, 14, 0.55);
-  --fm-btn-border-active: rgba(245, 149, 70, 0.5);
-  --fm-divider: rgba(49, 28, 14, 0.5);
-  --fm-section-btn-bg: rgba(49, 28, 14, 0.4);
-  --fm-section-btn-border: rgba(49, 28, 14, 0.7);
-  --fm-section-btn-border-hover: rgba(245, 149, 70, 0.35);
-  --fm-knob-bg: rgba(28, 14, 6, 0.4);
-  --fm-knob-border: rgba(49, 28, 14, 0.5);
+  --fm-panel-bg: rgba(10, 10, 11, 0.95);
+  --fm-panel-border: rgba(250, 250, 250, 0.12);
+  --fm-text-primary: #FAFAFA;
+  --fm-text-secondary: rgba(250, 250, 250, 0.60);
+  --fm-text-muted: rgba(250, 250, 250, 0.30);
+  --fm-accent: #E8531E;
+  --fm-accent-rgb: 232, 83, 30;
+  --fm-accent-dim: #FAFAFA;
+  --fm-accent-dim-rgb: 250, 250, 250;
+  --fm-knob-track: rgba(250, 250, 250, 0.08);
+  --fm-canvas-bg: #060608;
+  --fm-scrollbar-thumb: rgba(232, 83, 30, 0.35);
+  --fm-scrollbar-thumb-hover: rgba(232, 83, 30, 0.6);
+  --fm-scrollbar-track: rgba(250, 250, 250, 0.04);
+  --fm-btn-bg: rgba(250, 250, 250, 0.04);
+  --fm-btn-bg-active: rgba(232, 83, 30, 0.15);
+  --fm-btn-border: rgba(250, 250, 250, 0.12);
+  --fm-btn-border-active: #E8531E;
+  --fm-divider: rgba(250, 250, 250, 0.10);
+  --fm-section-btn-bg: rgba(250, 250, 250, 0.04);
+  --fm-section-btn-border: rgba(250, 250, 250, 0.12);
+  --fm-section-btn-border-hover: rgba(232, 83, 30, 0.5);
+  --fm-knob-bg: rgba(250, 250, 250, 0.04);
+  --fm-knob-border: rgba(250, 250, 250, 0.12);
   --fm-knob-arc-width: 2;
-  --fm-knob-shadow: inset 0 1px 0 rgba(249,214,182,0.07), inset 0 -1px 0 rgba(0,0,0,0.3), 0 2px 6px rgba(0,0,0,0.4);
-  --fm-knob-shadow-active: inset 0 1px 0 rgba(249,214,182,0.04), inset 0 -1px 0 rgba(0,0,0,0.4), 0 1px 3px rgba(0,0,0,0.5);
+  --fm-knob-shadow: inset 0 1px 0 rgba(255,255,255,0.04), inset 0 -1px 0 rgba(0,0,0,0.3), 0 1px 4px rgba(0,0,0,0.5);
+  --fm-knob-shadow-active: inset 0 1px 0 rgba(255,255,255,0.02), inset 0 -1px 0 rgba(0,0,0,0.4), 0 0px 2px rgba(0,0,0,0.6);
   --fm-vignette: rgba(0, 0, 0, 0.25);
   --fm-vignette-edge: rgba(0, 0, 0, 0.5);
   --fm-scanline-opacity: 0.08;
-  --fm-phosphor: rgba(245, 149, 70, 0.02);
+  --fm-phosphor: rgba(232, 83, 30, 0.02);
   --fm-osc-bg: rgba(0, 0, 0, 0.25);
-  --fm-osc-border: rgba(49, 28, 14, 0.4);
+  --fm-osc-border: rgba(250, 250, 250, 0.10);
 }
 
 :root.theme-light {
-  --fm-bg: #F3F2ED;
-  --fm-panel-bg: rgba(253, 253, 253, 0.88);
-  --fm-panel-border: rgba(180, 160, 140, 0.25);
-  --fm-text-primary: #1C0E06;
-  --fm-text-secondary: rgba(28, 14, 6, 0.55);
-  --fm-text-muted: rgba(28, 14, 6, 0.32);
-  --fm-accent: #2563EB;
-  --fm-accent-rgb: 37, 99, 235;
-  --fm-accent-dim: #93C5FD;
-  --fm-accent-dim-rgb: 147, 197, 253;
-  --fm-knob-track: rgba(37, 99, 235, 0.16);
-  --fm-canvas-bg: #FDFDFD;
-  --fm-scrollbar-thumb: rgba(37, 99, 235, 0.35);
-  --fm-scrollbar-thumb-hover: rgba(37, 99, 235, 0.6);
-  --fm-scrollbar-track: rgba(37, 99, 235, 0.06);
-  --fm-btn-bg: rgba(243, 242, 237, 0.8);
-  --fm-btn-bg-active: rgba(37, 99, 235, 0.10);
-  --fm-btn-border: rgba(180, 160, 140, 0.28);
-  --fm-btn-border-active: rgba(37, 99, 235, 0.45);
-  --fm-divider: rgba(180, 160, 140, 0.3);
-  --fm-section-btn-bg: rgba(243, 242, 237, 0.7);
-  --fm-section-btn-border: rgba(180, 160, 140, 0.3);
-  --fm-section-btn-border-hover: rgba(37, 99, 235, 0.30);
-  --fm-knob-bg: rgba(37, 99, 235, 0.06);
-  --fm-knob-border: rgba(180, 160, 140, 0.22);
+  --fm-bg: #FAFAFA;
+  --fm-panel-bg: rgba(255, 255, 255, 0.95);
+  --fm-panel-border: rgba(10, 10, 11, 0.12);
+  --fm-text-primary: #0A0A0B;
+  --fm-text-secondary: rgba(10, 10, 11, 0.55);
+  --fm-text-muted: rgba(10, 10, 11, 0.30);
+  --fm-accent: #E8531E;
+  --fm-accent-rgb: 232, 83, 30;
+  --fm-accent-dim: #0A0A0B;
+  --fm-accent-dim-rgb: 10, 10, 11;
+  --fm-knob-track: rgba(10, 10, 11, 0.08);
+  --fm-canvas-bg: #FAFAFA;
+  --fm-scrollbar-thumb: rgba(232, 83, 30, 0.35);
+  --fm-scrollbar-thumb-hover: rgba(232, 83, 30, 0.6);
+  --fm-scrollbar-track: rgba(10, 10, 11, 0.04);
+  --fm-btn-bg: rgba(10, 10, 11, 0.03);
+  --fm-btn-bg-active: rgba(232, 83, 30, 0.10);
+  --fm-btn-border: rgba(10, 10, 11, 0.12);
+  --fm-btn-border-active: #E8531E;
+  --fm-divider: rgba(10, 10, 11, 0.10);
+  --fm-section-btn-bg: rgba(10, 10, 11, 0.03);
+  --fm-section-btn-border: rgba(10, 10, 11, 0.12);
+  --fm-section-btn-border-hover: rgba(232, 83, 30, 0.5);
+  --fm-knob-bg: rgba(10, 10, 11, 0.03);
+  --fm-knob-border: rgba(10, 10, 11, 0.12);
   --fm-knob-arc-width: 2.5;
-  --fm-knob-shadow: inset 0 1px 0 rgba(255,255,255,0.5), inset 0 -1px 0 rgba(0,0,0,0.06), 0 1px 3px rgba(0,0,0,0.08);
-  --fm-knob-shadow-active: inset 0 1px 0 rgba(255,255,255,0.3), inset 0 -1px 0 rgba(0,0,0,0.08), 0 0px 2px rgba(0,0,0,0.1);
-  --fm-vignette: rgba(160, 120, 70, 0.12);
-  --fm-vignette-edge: rgba(160, 120, 70, 0.22);
-  --fm-scanline-opacity: 0.04;
-  --fm-phosphor: rgba(37, 99, 235, 0.015);
-  --fm-osc-bg: rgba(0, 0, 0, 0.05);
-  --fm-osc-border: rgba(180, 160, 140, 0.22);
+  --fm-knob-shadow: inset 0 1px 0 rgba(255,255,255,0.5), inset 0 -1px 0 rgba(0,0,0,0.04), 0 1px 3px rgba(0,0,0,0.06);
+  --fm-knob-shadow-active: inset 0 1px 0 rgba(255,255,255,0.3), inset 0 -1px 0 rgba(0,0,0,0.06), 0 0px 2px rgba(0,0,0,0.08);
+  --fm-vignette: rgba(10, 10, 11, 0.06);
+  --fm-vignette-edge: rgba(10, 10, 11, 0.12);
+  --fm-scanline-opacity: 0.03;
+  --fm-phosphor: rgba(232, 83, 30, 0.015);
+  --fm-osc-bg: rgba(10, 10, 11, 0.04);
+  --fm-osc-border: rgba(10, 10, 11, 0.10);
 }
 
 /* Default to dark */
 :root:not(.theme-light):not(.theme-dark) {
   --fm-bg: #0A0A0B;
-  --fm-panel-bg: rgba(28, 14, 6, 0.85);
-  --fm-panel-border: rgba(49, 28, 14, 0.6);
-  --fm-text-primary: #F9D6B6;
-  --fm-text-secondary: rgba(249, 214, 182, 0.55);
-  --fm-text-muted: rgba(249, 214, 182, 0.28);
-  --fm-accent: #F59546;
-  --fm-accent-rgb: 245, 149, 70;
-  --fm-accent-dim: #F9D6B6;
-  --fm-accent-dim-rgb: 249, 214, 182;
-  --fm-knob-track: rgba(49, 28, 14, 0.6);
-  --fm-canvas-bg: #06050A;
-  --fm-scrollbar-thumb: rgba(245, 149, 70, 0.3);
-  --fm-scrollbar-thumb-hover: rgba(245, 149, 70, 0.6);
-  --fm-scrollbar-track: rgba(49, 28, 14, 0.15);
-  --fm-btn-bg: rgba(28, 14, 6, 0.5);
-  --fm-btn-bg-active: rgba(245, 149, 70, 0.13);
-  --fm-btn-border: rgba(49, 28, 14, 0.55);
-  --fm-btn-border-active: rgba(245, 149, 70, 0.5);
-  --fm-divider: rgba(49, 28, 14, 0.5);
-  --fm-section-btn-bg: rgba(49, 28, 14, 0.4);
-  --fm-section-btn-border: rgba(49, 28, 14, 0.7);
-  --fm-section-btn-border-hover: rgba(245, 149, 70, 0.35);
-  --fm-knob-bg: rgba(28, 14, 6, 0.4);
-  --fm-knob-border: rgba(49, 28, 14, 0.5);
+  --fm-panel-bg: rgba(10, 10, 11, 0.95);
+  --fm-panel-border: rgba(250, 250, 250, 0.12);
+  --fm-text-primary: #FAFAFA;
+  --fm-text-secondary: rgba(250, 250, 250, 0.60);
+  --fm-text-muted: rgba(250, 250, 250, 0.30);
+  --fm-accent: #E8531E;
+  --fm-accent-rgb: 232, 83, 30;
+  --fm-accent-dim: #FAFAFA;
+  --fm-accent-dim-rgb: 250, 250, 250;
+  --fm-knob-track: rgba(250, 250, 250, 0.08);
+  --fm-canvas-bg: #060608;
+  --fm-scrollbar-thumb: rgba(232, 83, 30, 0.35);
+  --fm-scrollbar-thumb-hover: rgba(232, 83, 30, 0.6);
+  --fm-scrollbar-track: rgba(250, 250, 250, 0.04);
+  --fm-btn-bg: rgba(250, 250, 250, 0.04);
+  --fm-btn-bg-active: rgba(232, 83, 30, 0.15);
+  --fm-btn-border: rgba(250, 250, 250, 0.12);
+  --fm-btn-border-active: #E8531E;
+  --fm-divider: rgba(250, 250, 250, 0.10);
+  --fm-section-btn-bg: rgba(250, 250, 250, 0.04);
+  --fm-section-btn-border: rgba(250, 250, 250, 0.12);
+  --fm-section-btn-border-hover: rgba(232, 83, 30, 0.5);
+  --fm-knob-bg: rgba(250, 250, 250, 0.04);
+  --fm-knob-border: rgba(250, 250, 250, 0.12);
   --fm-knob-arc-width: 2;
-  --fm-knob-shadow: inset 0 1px 0 rgba(249,214,182,0.07), inset 0 -1px 0 rgba(0,0,0,0.3), 0 2px 6px rgba(0,0,0,0.4);
-  --fm-knob-shadow-active: inset 0 1px 0 rgba(249,214,182,0.04), inset 0 -1px 0 rgba(0,0,0,0.4), 0 1px 3px rgba(0,0,0,0.5);
+  --fm-knob-shadow: inset 0 1px 0 rgba(255,255,255,0.04), inset 0 -1px 0 rgba(0,0,0,0.3), 0 1px 4px rgba(0,0,0,0.5);
+  --fm-knob-shadow-active: inset 0 1px 0 rgba(255,255,255,0.02), inset 0 -1px 0 rgba(0,0,0,0.4), 0 0px 2px rgba(0,0,0,0.6);
   --fm-vignette: rgba(0, 0, 0, 0.25);
   --fm-vignette-edge: rgba(0, 0, 0, 0.5);
   --fm-scanline-opacity: 0.08;
-  --fm-phosphor: rgba(245, 149, 70, 0.02);
+  --fm-phosphor: rgba(232, 83, 30, 0.02);
   --fm-osc-bg: rgba(0, 0, 0, 0.25);
-  --fm-osc-border: rgba(49, 28, 14, 0.4);
+  --fm-osc-border: rgba(250, 250, 250, 0.10);
 }
 
 /* Global smooth theme transition */
@@ -279,11 +248,6 @@ button, div, span, [role] {
 }
 
 @layer base {
-  * {
-    @apply border-border;
-    font-family: 'JetBrains Mono', monospace !important;
-  }
-
   /* Only show focus ring on keyboard navigation, never on tap/click */
   *:focus-visible {
     @apply outline-ring/50;

@@ -34,8 +34,7 @@ export function RecordButton({
   if (typeof window !== 'undefined' && !window.MediaRecorder) return null;
 
   const progressPct = (recordSeconds / maxSeconds) * 100;
-  const height = isMobile ? '52px' : '40px';
-  const radius = isMobile ? '10px' : '4px';
+  const h = isMobile ? '52px' : '36px';
 
   // ── IDLE ──
   if (recordState === 'idle') {
@@ -44,18 +43,16 @@ export function RecordButton({
         onClick={isGateMode ? undefined : onStart}
         style={{
           width: '100%',
-          height,
+          height: h,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
           gap: '6px',
-          fontFamily: "'JetBrains Mono', monospace",
-          fontSize: '9px',
-          letterSpacing: '0.08em',
+          fontSize: '10px',
+          letterSpacing: '0.12em',
           color: isGateMode ? 'var(--fm-text-muted)' : 'var(--fm-accent)',
-          borderRadius: radius,
-          border: `1px solid ${isDark || !isMobile ? 'var(--fm-panel-border)' : 'rgba(180, 170, 160, 0.3)'}`,
-          backgroundColor: isDark || !isMobile ? 'var(--fm-panel-bg)' : 'rgba(253, 253, 253, 0.85)',
+          border: '1px solid var(--fm-panel-border)',
+          backgroundColor: 'var(--fm-panel-bg)',
           opacity: isGateMode ? 0.4 : 1,
           cursor: isGateMode ? 'not-allowed' : 'pointer',
           pointerEvents: isGateMode ? 'none' : 'auto',
@@ -63,12 +60,11 @@ export function RecordButton({
         title={isGateMode ? 'Recording not available in Gate mode' : 'Record audio loop (max 20s)'}
       >
         <span style={{
-          width: '6px',
-          height: '6px',
+          width: '5px',
+          height: '5px',
           borderRadius: '50%',
           flexShrink: 0,
           backgroundColor: isGateMode ? 'var(--fm-text-muted)' : 'var(--fm-accent)',
-          boxShadow: isGateMode ? 'none' : '0 0 5px rgba(var(--fm-accent-rgb),0.6)',
         }} />
         REC
       </button>
@@ -81,28 +77,23 @@ export function RecordButton({
       <div
         style={{
           width: '100%',
-          height,
+          height: h,
           position: 'relative',
           display: 'flex',
-          borderRadius: radius,
           border: '1px solid var(--fm-accent)',
           overflow: 'hidden',
-          boxShadow: '0 0 10px rgba(var(--fm-accent-rgb),0.25)',
           animation: 'formless-rec-pulse 1.4s ease-in-out infinite',
           flexShrink: 0,
         }}
       >
-        {/* Progress fill — grows left to right over maxSeconds */}
         <div style={{
           position: 'absolute',
           inset: 0,
           width: `${progressPct}%`,
-          backgroundColor: 'rgba(var(--fm-accent-rgb),0.18)',
+          backgroundColor: 'rgba(var(--fm-accent-rgb),0.15)',
           transition: 'width 1s linear',
           pointerEvents: 'none',
         }} />
-
-        {/* STOP zone */}
         <button
           onClick={onStop}
           style={{
@@ -120,21 +111,17 @@ export function RecordButton({
           title="Stop recording"
         >
           <svg width="10" height="10" viewBox="0 0 10 10" fill="none" style={{ flexShrink: 0 }}>
-            <rect x="1.5" y="1.5" width="7" height="7" rx="1.5" fill="var(--fm-accent)" />
+            <rect x="1.5" y="1.5" width="7" height="7" rx="1" fill="var(--fm-accent)" />
           </svg>
         </button>
-
-        {/* Divider */}
         <div style={{
           width: '1px',
-          height: '60%',
+          height: '50%',
           alignSelf: 'center',
-          backgroundColor: 'rgba(var(--fm-accent-rgb),0.35)',
+          backgroundColor: 'rgba(var(--fm-accent-rgb),0.3)',
           flexShrink: 0,
           zIndex: 1,
         }} />
-
-        {/* x CANCEL zone */}
         <button
           onClick={onClear}
           style={{
@@ -144,9 +131,9 @@ export function RecordButton({
             justifyContent: 'center',
             background: 'transparent',
             border: 'none',
-            color: 'rgba(var(--fm-accent-rgb),0.6)',
+            color: 'rgba(var(--fm-accent-rgb),0.5)',
             cursor: 'pointer',
-            fontSize: '16px',
+            fontSize: '14px',
             lineHeight: 1,
             position: 'relative',
             zIndex: 1,
@@ -166,19 +153,16 @@ export function RecordButton({
         onClick={onDownload}
         style={{
           flex: 1,
-          height,
+          height: h,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
           gap: '6px',
-          fontFamily: "'JetBrains Mono', monospace",
-          fontSize: '9px',
-          letterSpacing: '0.08em',
+          fontSize: '10px',
+          letterSpacing: '0.1em',
           color: 'var(--fm-accent)',
           border: '1px solid var(--fm-accent)',
-          borderRadius: radius,
-          backgroundColor: 'rgba(var(--fm-accent-rgb), 0.12)',
-          filter: 'drop-shadow(0 0 5px var(--fm-accent))',
+          backgroundColor: 'rgba(var(--fm-accent-rgb), 0.08)',
           cursor: 'pointer',
         }}
         title="Download WAV"
@@ -198,18 +182,16 @@ export function RecordButton({
         onClick={onClear}
         style={{
           width: isMobile ? '44px' : '36px',
-          height,
+          height: h,
           flexShrink: 0,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          fontFamily: "'JetBrains Mono', monospace",
-          fontSize: '16px',
+          fontSize: '14px',
           lineHeight: 1,
           color: 'var(--fm-text-muted)',
-          border: '1px solid var(--fm-section-btn-border)',
-          borderRadius: radius,
-          backgroundColor: 'var(--fm-section-btn-bg)',
+          border: '1px solid var(--fm-panel-border)',
+          backgroundColor: 'var(--fm-panel-bg)',
           cursor: 'pointer',
         }}
         title="Discard recording"

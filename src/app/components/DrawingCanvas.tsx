@@ -18,6 +18,7 @@ import { FLAVOR_COLORS_LIGHT } from '../utils/flavorColors';
 import { Eye, EyeOff, Trash2, Sun, Moon, Circle, ZapIcon, Waves, Sparkles, Wind, Hexagon, Disc, Diamond } from 'lucide-react';
 import { useTheme } from './ThemeContext';
 import { RecordButton } from './RecordButton';
+import { drawStroke as drawStrokeExternal } from '../utils/strokeRenderers';
 
 // ─── WAV converter ───
 async function webmBlobToWav(webmBlob: Blob): Promise<Blob> {
@@ -95,9 +96,53 @@ interface VisualPulse {
   duration: number;
 }
 
-const LEFT_STRIP_WIDTH = 88;
-const FX_PANEL_WIDTH = 220;
-const FLAVOR_BAR_WIDTH = 400;
+const LEFT_STRIP_WIDTH = 96;
+const FX_PANEL_WIDTH = 224;
+const FLAVOR_BAR_WIDTH = 420;
+
+// ── Smooth curve helper — Catmull-Rom spline through points ──
+const smoothCurvePath = (ctx: CanvasRenderingContext2D, points: Point[], tension: number = 0.3) => {
+  if (points.length < 2) return;
+  ctx.beginPath();
+  ctx.moveTo(points[0].x, points[0].y);
+  if (points.length === 2) {
+    ctx.lineTo(points[1].x, points[1].y);
+    return;
+  }
+  for (let i = 0; i < points.length - 1; i++) {
+    const p0 = points[Math.max(0, i - 1)];
+    const p1 = points[i];
+    const p2 = points[i + 1];
+    const p3 = points[Math.min(points.length - 1, i + 2)];
+    const cp1x = p1.x + (p2.x - p0.x) * tension;
+    const cp1y = p1.y + (p2.y - p0.y) * tension;
+    const cp2x = p2.x - (p3.x - p1.x) * tension;
+    const cp2y = p2.y - (p3.y - p1.y) * tension;
+    ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p2.x, p2.y);
+  }
+};
+
+// Smooth offset curve (for 3D shadows/ribbons)
+const smoothCurvePathOffset = (ctx: CanvasRenderingContext2D, points: Point[], ox: number, oy: number, tension: number = 0.3) => {
+  if (points.length < 2) return;
+  ctx.beginPath();
+  ctx.moveTo(points[0].x + ox, points[0].y + oy);
+  if (points.length === 2) {
+    ctx.lineTo(points[1].x + ox, points[1].y + oy);
+    return;
+  }
+  for (let i = 0; i < points.length - 1; i++) {
+    const p0 = points[Math.max(0, i - 1)];
+    const p1 = points[i];
+    const p2 = points[i + 1];
+    const p3 = points[Math.min(points.length - 1, i + 2)];
+    const cp1x = p1.x + ox + (p2.x - p0.x) * tension;
+    const cp1y = p1.y + oy + (p2.y - p0.y) * tension;
+    const cp2x = p2.x + ox - (p3.x - p1.x) * tension;
+    const cp2y = p2.y + oy - (p3.y - p1.y) * tension;
+    ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p2.x + ox, p2.y + oy);
+  }
+};
 
 // Breakpoints
 const BREAKPOINT_TABLET = 1024;
@@ -645,213 +690,597 @@ export function DrawingCanvas() {
     }
   }, [playMode]);
 
-  // DRAWING — flavor-specific stroke rendering
+  // ── ASCII dither field helper ──
+  // Renders a grid of density-mapped ASCII glyphs around the stroke path
+  const DITHER_CHARS = '.:-=+*#%@';
+  const DITHER_CELL = 12;
+  const DITHER_RADIUS = 48;
+
+  const drawAsciiDither = (
+    ctx: CanvasRenderingContext2D, points: Point[], color: string,
+    alpha: number, radius: number = DITHER_RADIUS, animated: boolean = false, t: number = 0
+  ) => {
+    if (points.length < 2) return;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const p of points) {
+      if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
+      if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y;
+    }
+    minX -= radius; minY -= radius; maxX += radius; maxY += radius;
+    const gx0 = Math.floor(minX / DITHER_CELL) * DITHER_CELL;
+    const gy0 = Math.floor(minY / DITHER_CELL) * DITHER_CELL;
+    const gx1 = Math.ceil(maxX / DITHER_CELL) * DITHER_CELL;
+    const gy1 = Math.ceil(maxY / DITHER_CELL) * DITHER_CELL;
+
+    ctx.font = "9px 'JetBrains Mono', monospace";
+    ctx.textBaseline = 'middle';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = color;
+
+    const step = Math.max(1, Math.floor(points.length / 60));
+    const sub: Point[] = [];
+    for (let i = 0; i < points.length; i += step) sub.push(points[i]);
+    sub.push(points[points.length - 1]);
+
+    for (let gy = gy0; gy <= gy1; gy += DITHER_CELL) {
+      for (let gx = gx0; gx <= gx1; gx += DITHER_CELL) {
+        const cx = gx + DITHER_CELL / 2;
+        const cy = gy + DITHER_CELL / 2;
+        let minDist = Infinity;
+        for (const p of sub) {
+          const dx = cx - p.x, dy = cy - p.y;
+          const d = Math.sqrt(dx * dx + dy * dy);
+          if (d < minDist) minDist = d;
+        }
+        if (minDist > radius) continue;
+        let intensity = 1.0 - (minDist / radius);
+        intensity = intensity * intensity;
+        if (animated) {
+          const wave = Math.sin(gx * 0.05 + gy * 0.03 + t * 1.2) * 0.3;
+          intensity = Math.max(0, Math.min(1, intensity + wave * intensity));
+        }
+        const ci = Math.floor(intensity * (DITHER_CHARS.length - 1));
+        const ch = DITHER_CHARS[Math.max(0, Math.min(ci, DITHER_CHARS.length - 1))];
+        if (ch === '.' && intensity < 0.08) continue;
+        ctx.globalAlpha = alpha * (0.15 + intensity * 0.65);
+        ctx.fillText(ch, cx, cy);
+      }
+    }
+  };
+
+  // DRAWING — 4-category stroke rendering (delegated to strokeRenderers.ts)
   const drawStroke = (
     ctx: CanvasRenderingContext2D, points: Point[], color: string,
     opacity: number, flavor: SoundFlavor, locked: boolean, muted: boolean
   ) => {
-    if (points.length < 2) return;
-    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-    const a = muted ? opacity * 0.2 : opacity;
-    const now = Date.now();
-    const useShadow = isDarkRef.current;
+    drawStrokeExternal(ctx, points, color, opacity, flavor, locked, muted, isDarkRef.current);
+  };
 
-    switch (flavor) {
-      case 'sine': {
-        ctx.strokeStyle = color; ctx.lineWidth = 2;
-        ctx.shadowBlur = useShadow ? (locked ? 25 : 15) : 0;
-        ctx.shadowColor = useShadow ? color : 'transparent';
-        ctx.globalAlpha = a * 0.4;
-        ctx.beginPath(); ctx.moveTo(points[0].x, points[0].y);
-        for (let i = 1; i < points.length - 1; i++) {
-          const cx = (points[i].x + points[i+1].x) / 2;
-          const cy = (points[i].y + points[i+1].y) / 2;
-          ctx.quadraticCurveTo(points[i].x, points[i].y, cx, cy);
-        }
-        ctx.lineTo(points[points.length-1].x, points[points.length-1].y);
-        ctx.stroke();
-        ctx.shadowBlur = useShadow ? 6 : 0; ctx.globalAlpha = a; ctx.stroke();
-        break;
-      }
-      case 'saw': {
-        ctx.strokeStyle = color; ctx.lineWidth = 2.5;
-        ctx.shadowBlur = useShadow ? 12 : 0;
-        ctx.shadowColor = useShadow ? '#FF8C00' : 'transparent';
-        ctx.globalAlpha = a;
-        ctx.beginPath();
-        for (let i = 0; i < points.length - 1; i++) {
-          const dx = points[i+1].x - points[i].x;
-          const dy = points[i+1].y - points[i].y;
-          const len = Math.sqrt(dx*dx + dy*dy);
-          if (len < 1) continue;
-          const nx = -dy/len, ny = dx/len;
-          const zigOff = (i % 2 === 0 ? 3 : -3);
-          const mx = (points[i].x + points[i+1].x) / 2 + nx * zigOff;
-          const my = (points[i].y + points[i+1].y) / 2 + ny * zigOff;
-          if (i === 0) ctx.moveTo(points[i].x, points[i].y);
-          ctx.lineTo(mx, my); ctx.lineTo(points[i+1].x, points[i+1].y);
-        }
-        ctx.stroke();
-        break;
-      }
-      case 'sub': {
-        const pulse = 0.7 + 0.3 * Math.sin(now * 0.003);
-        ctx.strokeStyle = color; ctx.lineWidth = 10;
-        ctx.shadowBlur = useShadow ? 32 : 0;
-        ctx.shadowColor = useShadow ? color : 'transparent';
-        ctx.globalAlpha = a * 0.35 * pulse;
-        ctx.beginPath(); ctx.moveTo(points[0].x, points[0].y);
-        for (let i = 1; i < points.length; i++) ctx.lineTo(points[i].x, points[i].y);
-        ctx.stroke();
-        ctx.lineWidth = 5; ctx.shadowBlur = useShadow ? 14 : 0; ctx.globalAlpha = a * pulse; ctx.stroke();
-        break;
-      }
-      case 'grain': {
-        ctx.shadowBlur = useShadow ? 6 : 0;
-        ctx.shadowColor = useShadow ? '#F5E6C8' : 'transparent';
-        const maxPoints = useShadow ? points.length : Math.min(points.length, 30);
-        for (let i = 0; i < maxPoints; i++) {
-          const pi = useShadow ? i : Math.floor(i * points.length / maxPoints);
-          const pc = 3 + Math.floor(Math.random() * 3);
-          for (let j = 0; j < pc; j++) {
-            const ox = (Math.random() - 0.5) * 24, oy = (Math.random() - 0.5) * 24;
-            const sz = 1 + Math.random() * 3;
-            ctx.globalAlpha = a * (0.2 + Math.random() * 0.6);
-            ctx.fillStyle = color;
-            ctx.beginPath(); ctx.arc(points[pi].x + ox, points[pi].y + oy, sz, 0, Math.PI * 2); ctx.fill();
-          }
-        }
-        break;
-      }
-      case 'noise': {
-        const isAnimated = locked;
-        const undulationPhase = isAnimated ? (now * 0.001 * 0.3 * Math.PI * 2) : 0;
-        const undulationAmp = isAnimated ? 4 : 0;
-        const wavePoints: { x: number; y: number }[] = [];
-        let accDist = 0;
-        for (let i = 0; i < points.length; i++) {
-          let px = points[i].x, py = points[i].y;
-          if (isAnimated && i > 0) {
-            const dx = points[i].x - points[i - 1].x;
-            const dy = points[i].y - points[i - 1].y;
-            const segLen = Math.sqrt(dx * dx + dy * dy) || 1;
-            accDist += segLen;
-            const nx = -dy / segLen, ny = dx / segLen;
-            const wave = Math.sin(undulationPhase + accDist * 0.02) * undulationAmp;
-            px += nx * wave; py += ny * wave;
-          }
-          wavePoints.push({ x: px, y: py });
-        }
+  /* Old inline stroke renderers removed — now in /src/app/utils/strokeRenderers.ts */
+  /* eslint-disable @typescript-eslint/no-unused-vars */
+  void smoothCurvePath; void smoothCurvePathOffset; // keep used by drawStrokeWithCA
+  /* eslint-enable */
+
+  /* Old renderers purged — see git history or strokeRenderers.ts for new implementations */
+  if (false as boolean) { // dead-code fence to prevent stale references from old renderers below
+    switch ('sine' as SoundFlavor) { case 'sine': {
+        ctx.save();
+        const darkSine = isDarkRef.current;
         ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-        ctx.strokeStyle = `rgba(184,169,201,${a * 0.08})`;
-        ctx.lineWidth = 24;
-        ctx.shadowBlur = useShadow ? 20 : 0;
-        ctx.shadowColor = useShadow ? 'rgba(184,169,201,0.3)' : 'transparent';
-        ctx.globalAlpha = a * 0.3;
-        ctx.beginPath(); ctx.moveTo(wavePoints[0].x, wavePoints[0].y);
-        for (let i = 1; i < wavePoints.length - 1; i++) {
-          const cpx = (wavePoints[i].x + wavePoints[i + 1].x) / 2;
-          const cpy = (wavePoints[i].y + wavePoints[i + 1].y) / 2;
-          ctx.quadraticCurveTo(wavePoints[i].x, wavePoints[i].y, cpx, cpy);
+        if (darkSine) {
+          // Dark mode: full shadow-based bloom
+          ctx.save(); ctx.shadowBlur = 32; ctx.shadowColor = color;
+          ctx.strokeStyle = color; ctx.lineWidth = 10; ctx.globalAlpha = a * 0.06;
+          poly(); ctx.stroke(); ctx.restore();
+          ctx.save(); ctx.shadowBlur = 16; ctx.shadowColor = color;
+          ctx.strokeStyle = color; ctx.lineWidth = 4; ctx.globalAlpha = a * 0.2;
+          ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+          poly(); ctx.stroke(); ctx.restore();
+        } else {
+          // Light mode: lightweight bloom layers — no shadowBlur
+          ctx.save();
+          ctx.strokeStyle = color; ctx.lineWidth = 8; ctx.globalAlpha = a * 0.08;
+          poly(); ctx.stroke(); ctx.restore();
+          ctx.save();
+          ctx.strokeStyle = color; ctx.lineWidth = 3; ctx.globalAlpha = a * 0.2;
+          ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+          poly(); ctx.stroke(); ctx.restore();
         }
-        ctx.lineTo(wavePoints[wavePoints.length - 1].x, wavePoints[wavePoints.length - 1].y);
-        ctx.stroke();
-        ctx.strokeStyle = `rgba(184,169,201,${a * 0.15})`; ctx.lineWidth = 14;
-        ctx.shadowBlur = useShadow ? 12 : 0; ctx.globalAlpha = a * 0.5;
-        ctx.beginPath(); ctx.moveTo(wavePoints[0].x, wavePoints[0].y);
-        for (let i = 1; i < wavePoints.length - 1; i++) {
-          const cpx = (wavePoints[i].x + wavePoints[i + 1].x) / 2;
-          const cpy = (wavePoints[i].y + wavePoints[i + 1].y) / 2;
-          ctx.quadraticCurveTo(wavePoints[i].x, wavePoints[i].y, cpx, cpy);
+        ctx.save();
+        if (darkSine) { ctx.shadowBlur = 6; ctx.shadowColor = color; }
+        ctx.lineWidth = 1.5; ctx.globalAlpha = a * 0.9;
+        ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+        const last = points[points.length - 1];
+        const grad = ctx.createLinearGradient(points[0].x, points[0].y, last.x, last.y);
+        if (darkSine) {
+          grad.addColorStop(0, color); grad.addColorStop(0.35, '#FFFFFFCC');
+          grad.addColorStop(0.65, '#FFFFFFCC'); grad.addColorStop(1, color);
+        } else {
+          grad.addColorStop(0, color); grad.addColorStop(0.5, color);
+          grad.addColorStop(1, color);
         }
-        ctx.lineTo(wavePoints[wavePoints.length - 1].x, wavePoints[wavePoints.length - 1].y);
-        ctx.stroke();
-        ctx.strokeStyle = color; ctx.lineWidth = 2;
-        ctx.shadowBlur = useShadow ? 8 : 0;
-        ctx.shadowColor = useShadow ? color : 'transparent';
-        ctx.globalAlpha = a * 0.6;
-        ctx.beginPath(); ctx.moveTo(wavePoints[0].x, wavePoints[0].y);
-        for (let i = 1; i < wavePoints.length - 1; i++) {
-          const cpx = (wavePoints[i].x + wavePoints[i + 1].x) / 2;
-          const cpy = (wavePoints[i].y + wavePoints[i + 1].y) / 2;
-          ctx.quadraticCurveTo(wavePoints[i].x, wavePoints[i].y, cpx, cpy);
+        ctx.strokeStyle = grad;
+        poly(); ctx.stroke(); ctx.restore();
+        ctx.save(); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+        for (const d of [5, -5, 10, -10]) {
+          ctx.strokeStyle = color; ctx.lineWidth = 0.6;
+          ctx.globalAlpha = a * Math.max(0.02, 0.08 - Math.abs(d) * 0.004);
+          ctx.beginPath();
+          for (let i = 0; i < points.length; i++) {
+            const t = i / (points.length - 1);
+            const w = Math.sin(t * Math.PI * 3 + now * 0.0015) * d;
+            const i0 = Math.max(0, i-1), i1 = Math.min(points.length-1, i+1);
+            const ddx = points[i1].x - points[i0].x, ddy = points[i1].y - points[i0].y;
+            const dl = Math.sqrt(ddx*ddx + ddy*ddy) || 1;
+            const px = points[i].x + (-ddy/dl)*w, py = points[i].y + (ddx/dl)*w;
+            i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+          }
+          ctx.stroke();
         }
-        ctx.lineTo(wavePoints[wavePoints.length - 1].x, wavePoints[wavePoints.length - 1].y);
-        ctx.stroke();
+        ctx.restore();
+        ctx.restore(); // outer sine save
         break;
       }
-      case 'metal': {
-        ctx.strokeStyle = color; ctx.lineWidth = 1.5;
-        ctx.shadowBlur = useShadow ? 4 : 0;
-        ctx.shadowColor = useShadow ? color : 'transparent';
-        ctx.globalAlpha = a;
-        ctx.beginPath(); ctx.moveTo(points[0].x, points[0].y);
-        for (let i = 1; i < points.length; i++) ctx.lineTo(points[i].x, points[i].y);
-        ctx.stroke();
-        ctx.lineWidth = 1; ctx.shadowBlur = 0;
-        let accLen = 0;
+
+      // ═══ GLOW: SUB — 3D ribbon with depth + atmospheric bloom ═══
+      case 'sub': {
+        ctx.save();
+        const p = 0.7 + 0.3 * Math.sin(now * 0.002);
+        ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+        const darkMode = isDarkRef.current;
+        // 3D depth shadow — offset copy creates ribbon illusion (deeper)
+        const depthOff = 8;
+        const depthOff2 = 4;
+        // Far shadow layer
+        ctx.save();
+        if (darkMode) { ctx.shadowBlur = 24; ctx.shadowColor = 'rgba(0,0,0,0.35)'; }
+        ctx.strokeStyle = darkMode ? 'rgba(60,15,100,0.25)' : 'rgba(100,30,160,0.18)';
+        ctx.lineWidth = darkMode ? 8 : 6; ctx.globalAlpha = a * 0.18 * p;
+        smoothCurvePathOffset(ctx, points, depthOff, depthOff);
+        ctx.stroke(); ctx.restore();
+        // Mid shadow layer
+        ctx.save();
+        if (darkMode) { ctx.shadowBlur = 12; ctx.shadowColor = 'rgba(0,0,0,0.2)'; }
+        ctx.strokeStyle = darkMode ? 'rgba(80,20,120,0.3)' : 'rgba(120,40,180,0.22)';
+        ctx.lineWidth = 5; ctx.globalAlpha = a * 0.22 * p;
+        smoothCurvePathOffset(ctx, points, depthOff2, depthOff2);
+        ctx.stroke(); ctx.restore();
+        // 3D connecting lines between front and back layers
+        ctx.save();
+        let accD = 0;
         for (let i = 1; i < points.length; i++) {
           const dx = points[i].x - points[i-1].x, dy = points[i].y - points[i-1].y;
-          accLen += Math.sqrt(dx*dx + dy*dy);
-          if (accLen > 20 + Math.random() * 15) {
-            accLen = 0;
-            const angle = Math.random() * Math.PI * 2;
-            const shardLen = 10 + Math.random() * 12;
-            ctx.globalAlpha = a * 0.7; ctx.beginPath();
+          accD += Math.sqrt(dx*dx + dy*dy);
+          if (accD >= 32) {
+            accD -= 32;
+            ctx.strokeStyle = color; ctx.lineWidth = 0.5;
+            ctx.globalAlpha = a * 0.08 * p;
+            ctx.beginPath();
             ctx.moveTo(points[i].x, points[i].y);
-            ctx.lineTo(points[i].x + Math.cos(angle) * shardLen, points[i].y + Math.sin(angle) * shardLen);
+            ctx.lineTo(points[i].x + depthOff, points[i].y + depthOff);
             ctx.stroke();
           }
         }
-        break;
-      }
-      case 'flutter': {
-        ctx.strokeStyle = color; ctx.lineWidth = 1.5;
-        ctx.shadowBlur = useShadow ? 14 : 0;
-        ctx.shadowColor = useShadow ? color : 'transparent';
-        ctx.globalAlpha = a;
-        ctx.beginPath();
-        let totalLen = 0;
-        for (let i = 0; i < points.length; i++) {
-          if (i > 0) totalLen += Math.sqrt((points[i].x-points[i-1].x)**2 + (points[i].y-points[i-1].y)**2);
-          const dx2 = i < points.length-1 ? points[i+1].x-points[i].x : points[i].x-points[i-1].x;
-          const dy2 = i < points.length-1 ? points[i+1].y-points[i].y : points[i].y-points[i-1].y;
-          const l = Math.sqrt(dx2*dx2+dy2*dy2)||1;
-          const nx=-dy2/l, ny=dx2/l;
-          const wave = Math.sin(totalLen/40*Math.PI*2)*8;
-          if (i===0) ctx.moveTo(points[i].x+nx*wave, points[i].y+ny*wave);
-          else ctx.lineTo(points[i].x+nx*wave, points[i].y+ny*wave);
+        ctx.restore();
+        if (darkMode) {
+          // Wide atmospheric bloom — dark mode only (heavy shadowBlur)
+          ctx.save(); ctx.shadowBlur = 60; ctx.shadowColor = color;
+          ctx.strokeStyle = color; ctx.lineWidth = 18; ctx.globalAlpha = a * 0.035 * p;
+          poly(); ctx.stroke(); ctx.restore();
+          // Mid bloom — dark mode only
+          ctx.save(); ctx.shadowBlur = 24; ctx.shadowColor = color;
+          ctx.strokeStyle = color; ctx.lineWidth = 7; ctx.globalAlpha = a * 0.1 * p;
+          ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+          poly(); ctx.stroke(); ctx.restore();
+          // Inner glow — dark mode only
+          ctx.save(); ctx.shadowBlur = 10; ctx.shadowColor = color;
+          ctx.strokeStyle = color; ctx.lineWidth = 2.8; ctx.globalAlpha = a * 0.4 * p;
+          ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+          poly(); ctx.stroke(); ctx.restore();
+        } else {
+          // Light mode: lightweight bloom substitute — no shadowBlur
+          ctx.save();
+          ctx.strokeStyle = color; ctx.lineWidth = 6; ctx.globalAlpha = a * 0.10 * p;
+          ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+          poly(); ctx.stroke(); ctx.restore();
+          ctx.save();
+          ctx.strokeStyle = color; ctx.lineWidth = 2.5; ctx.globalAlpha = a * 0.35 * p;
+          ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+          poly(); ctx.stroke(); ctx.restore();
         }
-        ctx.stroke();
-        break;
-      }
-      case 'crystal': {
-        ctx.strokeStyle = color; ctx.lineWidth = 1;
-        ctx.shadowBlur = useShadow ? 16 : 0;
-        ctx.shadowColor = useShadow ? color : 'transparent';
-        let pathLen = 0, lastDiamond = 0;
+        // Hot core gradient
+        ctx.save();
+        if (darkMode) { ctx.shadowBlur = 4; ctx.shadowColor = '#FFFFFF'; }
+        ctx.lineWidth = 1.2; ctx.globalAlpha = a * 0.85;
+        ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+        const last2 = points[points.length - 1];
+        const g = ctx.createLinearGradient(points[0].x, points[0].y, last2.x, last2.y);
+        if (darkMode) {
+          g.addColorStop(0, color); g.addColorStop(0.25, '#FFFFFFBB');
+          g.addColorStop(0.5, color); g.addColorStop(0.75, '#FFFFFFBB');
+          g.addColorStop(1, color);
+        } else {
+          g.addColorStop(0, color); g.addColorStop(0.3, color);
+          g.addColorStop(0.5, '#44006680'); g.addColorStop(0.7, color);
+          g.addColorStop(1, color);
+        }
+        ctx.strokeStyle = g;
+        poly(); ctx.stroke(); ctx.restore();
+        // Radial glow orbs
+        ctx.save();
+        let accS = 0;
         for (let i = 1; i < points.length; i++) {
-          pathLen += Math.sqrt((points[i].x-points[i-1].x)**2 + (points[i].y-points[i-1].y)**2);
-          if (pathLen - lastDiamond >= 14) {
-            lastDiamond = pathLen;
-            const cx2 = points[i].x, cy2 = points[i].y;
-            const sz = 6 + Math.sin(pathLen * 0.15) * 2;
-            ctx.globalAlpha = a * 0.15; ctx.fillStyle = color;
-            ctx.beginPath(); ctx.moveTo(cx2, cy2-sz); ctx.lineTo(cx2+sz, cy2);
-            ctx.lineTo(cx2, cy2+sz); ctx.lineTo(cx2-sz, cy2); ctx.closePath(); ctx.fill();
-            ctx.globalAlpha = a * 0.8; ctx.stroke();
+          const dx = points[i].x - points[i-1].x, dy = points[i].y - points[i-1].y;
+          accS += Math.sqrt(dx*dx + dy*dy);
+          if (accS >= 28) {
+            accS -= 28;
+            const br = 0.3 + 0.7 * Math.abs(Math.sin(now * 0.003 + i * 1.1));
+            if (darkMode) {
+              const rg = ctx.createRadialGradient(points[i].x, points[i].y, 0, points[i].x, points[i].y, 10);
+              rg.addColorStop(0, `rgba(255,255,255,${0.45 * br * p})`);
+              rg.addColorStop(0.4, color + '50');
+              rg.addColorStop(1, 'transparent');
+              ctx.globalAlpha = a * 0.55;
+              ctx.fillStyle = rg;
+              ctx.fillRect(points[i].x - 10, points[i].y - 10, 20, 20);
+            } else {
+              // Light mode: simple dots instead of radial gradients
+              ctx.globalAlpha = a * 0.4 * br * p;
+              ctx.fillStyle = color;
+              ctx.beginPath();
+              ctx.arc(points[i].x, points[i].y, 2.5, 0, Math.PI * 2);
+              ctx.fill();
+            }
           }
         }
-        ctx.globalAlpha = a * 0.3; ctx.lineWidth = 0.5;
-        ctx.shadowBlur = useShadow ? 4 : 0;
-        ctx.beginPath(); ctx.moveTo(points[0].x, points[0].y);
-        for (let i = 1; i < points.length; i++) ctx.lineTo(points[i].x, points[i].y);
+        ctx.restore();
+        ctx.restore(); // outer save
+        break;
+      }
+
+      // ═══════════════════════════════════════════════
+      // GEOMETRIC (SAW + CRYSTAL) — clean Swiss/Bauhaus
+      // ═══════════════════════════════════════════════
+
+      // ═══ GEOMETRIC: SAW — 3D node-graph network ═══
+      case 'saw': {
+        ctx.save();
+        ctx.lineCap = 'butt'; ctx.lineJoin = 'miter';
+        ctx.shadowBlur = 0; ctx.shadowColor = 'transparent';
+        // Shadow staircase (depth offset — deeper)
+        const sawD = 5;
+        ctx.strokeStyle = isDarkRef.current ? 'rgba(200,100,20,0.12)' : 'rgba(200,100,20,0.06)';
+        ctx.lineWidth = 2; ctx.globalAlpha = a * 0.3;
+        ctx.beginPath(); ctx.moveTo(points[0].x + sawD, points[0].y + sawD);
+        for (let i = 1; i < points.length; i++) {
+          if (i % 2 === 0) { ctx.lineTo(points[i].x + sawD, points[i-1].y + sawD); ctx.lineTo(points[i].x + sawD, points[i].y + sawD); }
+          else { ctx.lineTo(points[i-1].x + sawD, points[i].y + sawD); ctx.lineTo(points[i].x + sawD, points[i].y + sawD); }
+        }
         ctx.stroke();
+        // Ghost guide line
+        ctx.strokeStyle = color; ctx.lineWidth = 0.8;
+        ctx.globalAlpha = a * 0.15;
+        poly(); ctx.stroke();
+        // Main staircase
+        ctx.strokeStyle = color; ctx.lineWidth = 1.5;
+        ctx.globalAlpha = a * 0.8;
+        ctx.beginPath(); ctx.moveTo(points[0].x, points[0].y);
+        for (let i = 1; i < points.length; i++) {
+          if (i % 2 === 0) { ctx.lineTo(points[i].x, points[i-1].y); ctx.lineTo(points[i].x, points[i].y); }
+          else { ctx.lineTo(points[i-1].x, points[i].y); ctx.lineTo(points[i].x, points[i].y); }
+        }
+        ctx.stroke();
+        // Nodes with 3D shadow
+        let accSaw = 0;
+        for (let i = 1; i < points.length; i++) {
+          const dx = points[i].x - points[i-1].x, dy = points[i].y - points[i-1].y;
+          accSaw += Math.sqrt(dx*dx + dy*dy);
+          if (accSaw >= 22) {
+            accSaw -= 22;
+            const r = 3 + (i % 3);
+            // Shadow circle
+            ctx.fillStyle = isDarkRef.current ? 'rgba(0,0,0,0.3)' : 'rgba(0,0,0,0.08)';
+            ctx.globalAlpha = a * 0.5;
+            ctx.beginPath(); ctx.arc(points[i].x + 2, points[i].y + 2, r, 0, Math.PI * 2); ctx.fill();
+            // Main circle
+            ctx.fillStyle = color; ctx.globalAlpha = a * 0.85;
+            ctx.beginPath(); ctx.arc(points[i].x, points[i].y, r, 0, Math.PI * 2); ctx.fill();
+            // Highlight dot
+            ctx.fillStyle = '#FFFFFF'; ctx.globalAlpha = a * 0.6;
+            ctx.beginPath(); ctx.arc(points[i].x - 1, points[i].y - 1, 1.2, 0, Math.PI * 2); ctx.fill();
+          }
+        }
+        // Endpoints
+        ctx.fillStyle = isDarkRef.current ? 'rgba(0,0,0,0.3)' : 'rgba(0,0,0,0.08)';
+        ctx.globalAlpha = a * 0.5;
+        ctx.beginPath(); ctx.arc(points[0].x + 2, points[0].y + 2, 4, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = color; ctx.globalAlpha = a;
+        ctx.beginPath(); ctx.arc(points[0].x, points[0].y, 4, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = isDarkRef.current ? 'rgba(0,0,0,0.3)' : 'rgba(0,0,0,0.08)';
+        ctx.globalAlpha = a * 0.5;
+        ctx.beginPath(); ctx.arc(points[points.length-1].x + 2, points[points.length-1].y + 2, 4, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = color; ctx.globalAlpha = a;
+        ctx.beginPath(); ctx.arc(points[points.length-1].x, points[points.length-1].y, 4, 0, Math.PI * 2); ctx.fill();
+        ctx.restore();
+        break;
+      }
+
+      // ═══ GEOMETRIC: CRYSTAL — 3D isometric diamonds with enhanced depth ═══
+      case 'crystal': {
+        ctx.save();
+        ctx.lineCap = 'butt'; ctx.lineJoin = 'miter';
+        ctx.shadowBlur = 0; ctx.shadowColor = 'transparent';
+        // Ghost construction line — smooth curve
+        ctx.strokeStyle = color; ctx.lineWidth = 0.5;
+        ctx.globalAlpha = a * 0.12;
+        poly(); ctx.stroke();
+        // 3D isometric diamonds with deeper depth
+        const dz = 6; // depth offset for 3D
+        const dz2 = 3; // secondary depth layer
+        let pl = 0, lastD = 0;
+        let prev: {x:number;y:number}|null = null;
+        for (let i = 1; i < points.length; i++) {
+          pl += Math.sqrt((points[i].x-points[i-1].x)**2 + (points[i].y-points[i-1].y)**2);
+          if (pl - lastD >= 22) {
+            lastD = pl;
+            const cx2 = points[i].x, cy2 = points[i].y;
+            const sz = 5 + (i % 3) * 2.5;
+            // Smooth connector curve between diamonds
+            if (prev) {
+              ctx.strokeStyle = color; ctx.lineWidth = 0.5;
+              ctx.globalAlpha = a * 0.08;
+              const mx = (prev.x + cx2) / 2, my = (prev.y + cy2) / 2 - 6;
+              ctx.beginPath(); ctx.moveTo(prev.x, prev.y);
+              ctx.quadraticCurveTo(mx, my, cx2, cy2); ctx.stroke();
+            }
+            // Deep shadow layer (furthest back)
+            ctx.strokeStyle = isDarkRef.current ? 'rgba(100,200,250,0.08)' : 'rgba(50,100,200,0.04)';
+            ctx.lineWidth = 0.6; ctx.globalAlpha = a * 0.1;
+            ctx.beginPath();
+            ctx.moveTo(cx2 + dz, cy2 - sz + dz); ctx.lineTo(cx2 + sz + dz, cy2 + dz);
+            ctx.lineTo(cx2 + dz, cy2 + sz + dz); ctx.lineTo(cx2 - sz + dz, cy2 + dz);
+            ctx.closePath(); ctx.stroke();
+            // Fill back face with subtle tint
+            ctx.fillStyle = isDarkRef.current ? 'rgba(100,230,250,0.03)' : 'rgba(50,150,200,0.02)';
+            ctx.globalAlpha = a * 0.15;
+            ctx.fill();
+            // Mid-depth layer
+            ctx.strokeStyle = color; ctx.lineWidth = 0.6;
+            ctx.globalAlpha = a * 0.12;
+            ctx.beginPath();
+            ctx.moveTo(cx2 + dz2, cy2 - sz + dz2); ctx.lineTo(cx2 + sz + dz2, cy2 + dz2);
+            ctx.lineTo(cx2 + dz2, cy2 + sz + dz2); ctx.lineTo(cx2 - sz + dz2, cy2 + dz2);
+            ctx.closePath(); ctx.stroke();
+            // 3D connecting edges (front to back)
+            ctx.lineWidth = 0.4; ctx.globalAlpha = a * 0.1;
+            ctx.strokeStyle = color;
+            for (const [vx,vy] of [[cx2,cy2-sz],[cx2+sz,cy2],[cx2,cy2+sz],[cx2-sz,cy2]] as [number,number][]) {
+              ctx.beginPath(); ctx.moveTo(vx, vy); ctx.lineTo(vx + dz, vy + dz); ctx.stroke();
+            }
+            // Front face — bright
+            ctx.strokeStyle = color; ctx.lineWidth = 1.2;
+            ctx.globalAlpha = a * 0.7;
+            ctx.beginPath();
+            ctx.moveTo(cx2, cy2 - sz); ctx.lineTo(cx2 + sz, cy2);
+            ctx.lineTo(cx2, cy2 + sz); ctx.lineTo(cx2 - sz, cy2);
+            ctx.closePath(); ctx.stroke();
+            // Front face subtle fill
+            ctx.fillStyle = color; ctx.globalAlpha = a * 0.04;
+            ctx.fill();
+            // Vertex dots
+            ctx.fillStyle = color; ctx.globalAlpha = a * 0.55;
+            for (const [vx,vy] of [[cx2,cy2-sz],[cx2+sz,cy2],[cx2,cy2+sz],[cx2-sz,cy2]] as [number,number][]) {
+              ctx.beginPath(); ctx.arc(vx, vy, 1.4, 0, Math.PI * 2); ctx.fill();
+            }
+            // Center crosshair
+            ctx.strokeStyle = color; ctx.lineWidth = 0.5; ctx.globalAlpha = a * 0.18;
+            ctx.beginPath(); ctx.moveTo(cx2-3,cy2); ctx.lineTo(cx2+3,cy2); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(cx2,cy2-3); ctx.lineTo(cx2,cy2+3); ctx.stroke();
+            prev = {x:cx2, y:cy2};
+          }
+        }
+        ctx.restore();
+        break;
+      }
+
+      // ═══════════════════════════════════════════════
+      // ASCII DITHER (GRAIN + NOISE) — typographic texture
+      // ═══════════════════════════════════════════════
+
+      // ═══ DITHER: GRAIN — ASCII density field ═══
+      case 'grain': {
+        ctx.save();
+        ctx.lineCap = 'butt'; ctx.lineJoin = 'miter';
+        ctx.shadowBlur = 0; ctx.shadowColor = 'transparent';
+        ctx.strokeStyle = color; ctx.lineWidth = 0.5;
+        ctx.globalAlpha = a * 0.15;
+        poly(); ctx.stroke();
+        drawAsciiDither(ctx, points, color, a * 0.75, 32, false, 0);
+        ctx.font = "11px 'JetBrains Mono', monospace";
+        ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
+        ctx.fillStyle = color;
+        let accG = 0;
+        for (let i = 1; i < points.length; i++) {
+          const dx = points[i].x - points[i-1].x, dy = points[i].y - points[i-1].y;
+          accG += Math.sqrt(dx*dx + dy*dy);
+          if (accG >= 16) {
+            accG -= 16;
+            const ch = DITHER_CHARS[5 + Math.floor(Math.random() * 4)];
+            ctx.globalAlpha = a * (0.45 + Math.random() * 0.35);
+            ctx.fillText(ch, points[i].x, points[i].y);
+          }
+        }
+        ctx.restore();
+        break;
+      }
+
+      // ═══ DITHER: NOISE — interference scan field ═══
+      case 'noise': {
+        ctx.save();
+        ctx.lineCap = 'butt'; ctx.lineJoin = 'miter';
+        ctx.shadowBlur = 0; ctx.shadowColor = 'transparent';
+        const isAnim = locked;
+        const ph = isAnim ? now * 0.0006 : 0;
+        drawAsciiDither(ctx, points, color, a * 0.5, 40, isAnim, now * 0.001);
+        ctx.strokeStyle = color; ctx.lineWidth = 0.8;
+        ctx.globalAlpha = a * 0.25;
+        poly(); ctx.stroke();
+        ctx.lineWidth = 0.8;
+        let accN = 0;
+        for (let i = 1; i < points.length; i++) {
+          const dx = points[i].x - points[i-1].x, dy = points[i].y - points[i-1].y;
+          const sl = Math.sqrt(dx*dx + dy*dy);
+          accN += sl;
+          if (accN >= 7) {
+            accN -= 7;
+            const len = sl || 1;
+            const nx = -dy / len, ny = dx / len;
+            const hl = 6 + Math.sin(i * 0.35 + ph) * 10;
+            const off = isAnim ? Math.sin(i * 0.4 + ph * 2.5) * 3 : 0;
+            ctx.globalAlpha = a * (0.1 + Math.abs(Math.sin(i * 0.25 + ph)) * 0.4);
+            ctx.beginPath();
+            ctx.moveTo(points[i].x + nx * (hl + off), points[i].y + ny * (hl + off));
+            ctx.lineTo(points[i].x - nx * hl, points[i].y - ny * hl);
+            ctx.stroke();
+          }
+        }
+        ctx.restore();
+        break;
+      }
+
+      // ═══════════════════════════════════════════════
+      // GLITCH (METAL + FLUTTER) — digital corruption
+      // ═══════════════════════════════════════════════
+
+      // ═══ GLITCH: METAL — chromatic aberration + data corruption ═══
+      case 'metal': {
+        ctx.save();
+        ctx.lineCap = 'butt'; ctx.lineJoin = 'miter';
+        ctx.shadowBlur = 0; ctx.shadowColor = 'transparent';
+        const gt = now * 0.001;
+        const gi = locked ? (0.65 + 0.35 * Math.sin(gt * 1.9)) : 0.7;
+        ctx.save(); ctx.globalAlpha = a * 0.3 * gi;
+        ctx.strokeStyle = '#FF4466'; ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        for (let i = 0; i < points.length; i++) {
+          const s = locked ? Math.sin(i * 0.08 + gt * 4) * 2 : -1.5;
+          i === 0 ? ctx.moveTo(points[i].x + s - 1, points[i].y - 1) : ctx.lineTo(points[i].x + s - 1, points[i].y - 1);
+        }
+        ctx.stroke(); ctx.restore();
+        ctx.save(); ctx.globalAlpha = a * 0.3 * gi;
+        ctx.strokeStyle = '#4488FF'; ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        for (let i = 0; i < points.length; i++) {
+          const s = locked ? Math.sin(i * 0.08 + gt * 4 + 2) * 2 : 1.5;
+          i === 0 ? ctx.moveTo(points[i].x + s + 1, points[i].y + 1) : ctx.lineTo(points[i].x + s + 1, points[i].y + 1);
+        }
+        ctx.stroke(); ctx.restore();
+        ctx.save(); ctx.globalAlpha = a * 0.85;
+        ctx.strokeStyle = color; ctx.lineWidth = 1.5;
+        poly(); ctx.stroke(); ctx.restore();
+        ctx.save();
+        let accM = 0;
+        for (let i = 1; i < points.length; i++) {
+          const dx = points[i].x-points[i-1].x, dy = points[i].y-points[i-1].y;
+          accM += Math.sqrt(dx*dx + dy*dy);
+          if (accM >= 22) {
+            accM -= 22;
+            const tw = 12 + Math.sin(i * 0.5 + gt * 2) * 16;
+            const tx = points[i].x + (locked ? Math.sin(i * 0.25 + gt * 5) * 5 : Math.sin(i) * 3);
+            ctx.globalAlpha = a * 0.18 * gi;
+            ctx.fillStyle = i % 2 === 0 ? '#FF4466' : '#4488FF';
+            ctx.fillRect(tx - tw/2, points[i].y - 0.5, tw, 1);
+          }
+        }
+        ctx.restore();
+        ctx.save();
+        for (let i = 0; i < points.length; i += 10) {
+          const f = Math.sin(i * 0.7 + gt * 8);
+          if (f > 0.2) {
+            ctx.globalAlpha = a * 0.22 * gi;
+            ctx.fillStyle = f > 0.6 ? '#FF4466' : '#4488FF';
+            ctx.fillRect(points[i].x + Math.sin(i)*6 - 1, points[i].y + Math.cos(i*1.1)*5 - 1, 2, 2);
+          }
+        }
+        ctx.restore();
+        ctx.restore(); // outer metal save
+        break;
+      }
+
+      // ═══ GLITCH: FLUTTER — VHS tracking displacement ═══
+      case 'flutter': {
+        ctx.save();
+        ctx.lineCap = 'butt'; ctx.lineJoin = 'miter';
+        ctx.shadowBlur = 0; ctx.shadowColor = 'transparent';
+        const ft = now * 0.001;
+        const sp = Math.sin(ft * 1.5);
+        const SL = 16;
+        let af = 0, ss = 0;
+        const sg: {s:number;e:number;ox:number;oy:number}[] = [];
+        for (let i = 1; i < points.length; i++) {
+          af += Math.sqrt((points[i].x-points[i-1].x)**2 + (points[i].y-points[i-1].y)**2);
+          if (af >= SL || i === points.length-1) {
+            const j = locked ? Math.sin(sg.length * 1.8 + ft * 4) * 6 * sp : Math.sin(sg.length * 1.4) * 3.5;
+            sg.push({s:ss, e:i, ox:j, oy:Math.sin(sg.length*0.6)*1});
+            ss = i; af = 0;
+          }
+        }
+        ctx.save(); ctx.globalAlpha = a * 0.2;
+        ctx.strokeStyle = '#FF6B6B'; ctx.lineWidth = 1.5;
+        for (const s of sg) {
+          ctx.beginPath();
+          for (let i = s.s; i <= s.e; i++) {
+            i === s.s ? ctx.moveTo(points[i].x + s.ox + 2, points[i].y + s.oy - 1.5) : ctx.lineTo(points[i].x + s.ox + 2, points[i].y + s.oy - 1.5);
+          }
+          ctx.stroke();
+        }
+        ctx.restore();
+        ctx.save(); ctx.globalAlpha = a * 0.15;
+        ctx.strokeStyle = '#6BE8FF'; ctx.lineWidth = 1.5;
+        for (const s of sg) {
+          ctx.beginPath();
+          for (let i = s.s; i <= s.e; i++) {
+            i === s.s ? ctx.moveTo(points[i].x - s.ox - 1.5, points[i].y - s.oy + 1.5) : ctx.lineTo(points[i].x - s.ox - 1.5, points[i].y - s.oy + 1.5);
+          }
+          ctx.stroke();
+        }
+        ctx.restore();
+        ctx.save(); ctx.strokeStyle = color; ctx.lineWidth = 1.5;
+        for (const s of sg) {
+          ctx.globalAlpha = a * (0.65 + Math.sin(s.s * 0.2 + ft) * 0.15);
+          ctx.beginPath();
+          for (let i = s.s; i <= s.e; i++) {
+            i === s.s ? ctx.moveTo(points[i].x + s.ox, points[i].y + s.oy) : ctx.lineTo(points[i].x + s.ox, points[i].y + s.oy);
+          }
+          ctx.stroke();
+        }
+        ctx.restore();
+        ctx.save();
+        for (let i = 0; i < sg.length; i += 3) {
+          const s = sg[i]; const pt = points[s.e];
+          const bw = 14 + Math.sin(i * 1.1 + ft * 3) * 10;
+          ctx.globalAlpha = a * 0.12;
+          ctx.fillStyle = i % 2 === 0 ? '#FF6B6B' : '#6BE8FF';
+          ctx.fillRect(pt.x + s.ox - bw/2, pt.y - 0.5, bw, 1);
+        }
+        ctx.restore();
+        ctx.save(); ctx.globalAlpha = a * 0.08;
+        ctx.strokeStyle = color; ctx.lineWidth = 0.8;
+        for (let i = 0; i < sg.length; i += 4) {
+          const s = sg[i];
+          ctx.beginPath();
+          for (let j = s.s; j <= s.e; j++) {
+            j === s.s ? ctx.moveTo(points[j].x + s.ox + 4, points[j].y + s.oy + 3) : ctx.lineTo(points[j].x + s.ox + 4, points[j].y + s.oy + 3);
+          }
+          ctx.stroke();
+        }
+        ctx.restore();
+        ctx.restore(); // outer flutter save
         break;
       }
     }
-    ctx.globalAlpha = 1; ctx.shadowBlur = 0;
-  };
+    _deadCtx.globalAlpha = 1; _deadCtx.shadowBlur = 0;
+  } /* DEAD_CODE_MARKER_END */
 
   const drawStrokeWithCA = (
     ctx: CanvasRenderingContext2D, points: Point[], color: string,
@@ -859,15 +1288,31 @@ export function DrawingCanvas() {
     applyCA: boolean
   ) => {
     if (applyCA && points.length >= 2) {
+      // Light-mode CA: lightweight offset paths only (NOT full drawStroke).
+      // Use 'multiply' so the tint is visible on white backgrounds.
+      // This avoids the catastrophic cost of rendering 3× full drawStroke
+      // with heavy shadow/blur passes (especially for SUB/SINE).
+      const caAlpha = opacity * 0.18;
       ctx.save();
-      ctx.translate(1, 0);
-      ctx.globalCompositeOperation = 'lighter';
-      drawStroke(ctx, points, 'rgba(180,40,40,0.12)', opacity * 0.6, flavor, locked, muted);
+      ctx.globalCompositeOperation = 'multiply';
+      ctx.globalAlpha = caAlpha;
+      ctx.strokeStyle = 'rgba(220,60,60,0.35)';
+      ctx.lineWidth = 1.5;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      smoothCurvePathOffset(ctx, points, 1.5, 0);
+      ctx.stroke();
       ctx.restore();
+
       ctx.save();
-      ctx.translate(-1, 0);
-      ctx.globalCompositeOperation = 'lighter';
-      drawStroke(ctx, points, 'rgba(40,40,180,0.12)', opacity * 0.6, flavor, locked, muted);
+      ctx.globalCompositeOperation = 'multiply';
+      ctx.globalAlpha = caAlpha;
+      ctx.strokeStyle = 'rgba(60,60,220,0.35)';
+      ctx.lineWidth = 1.5;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      smoothCurvePathOffset(ctx, points, -1.5, 0);
+      ctx.stroke();
       ctx.restore();
     }
     ctx.globalCompositeOperation = 'source-over';
@@ -888,7 +1333,7 @@ export function DrawingCanvas() {
       if (timestamp - lastFrameRef.current < frameInterval) return;
       lastFrameRef.current = timestamp;
 
-      ctx.fillStyle = isDarkRef.current ? '#08080E' : '#EDEAE2';
+      ctx.fillStyle = isDarkRef.current ? '#060608' : '#FAFAFA';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       const now = Date.now();
       const beatDurMs = 60000 / modulators.tempo;
@@ -914,8 +1359,8 @@ export function DrawingCanvas() {
         if (opacity > 0) {
           drawStrokeWithCA(ctx, stroke.points, stroke.color, opacity, stroke.flavor, stroke.locked || !!stroke.isPulse, stroke.muted, !isDarkRef.current);
           if ((stroke.locked || stroke.isPulse) && !stroke.fadeOutStart) {
-            ctx.fillStyle = stroke.color; ctx.globalAlpha = 0.6;
-            ctx.beginPath(); ctx.arc(stroke.points[0].x, stroke.points[0].y, 4, 0, Math.PI*2); ctx.fill();
+            ctx.fillStyle = stroke.color; ctx.globalAlpha = 0.7;
+            ctx.fillRect(stroke.points[0].x - 3, stroke.points[0].y - 3, 6, 6);
             ctx.globalAlpha = 1;
           }
         }
@@ -945,9 +1390,8 @@ export function DrawingCanvas() {
       ? 'transform 320ms cubic-bezier(0.22, 1, 0.36, 1)'
       : 'transform 250ms cubic-bezier(0.4, 0, 1, 1)',
     zIndex: 50,
-    borderRadius: '16px 16px 0 0',
+    borderRadius: '0',
     backgroundColor: 'var(--fm-panel-bg)',
-    backdropFilter: 'blur(12px)',
     borderTop: '1px solid var(--fm-panel-border)',
   });
 
@@ -975,18 +1419,17 @@ export function DrawingCanvas() {
   const mobileFlavorBtnStyle = (isActive: boolean, color: string): React.CSSProperties => ({
     width: 'calc(25% - 6px)',
     height: '44px',
-    fontFamily: 'monospace',
     fontSize: '9px',
+    letterSpacing: '0.05em',
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: '2px',
-    borderRadius: '6px',
+    gap: '3px',
     color: isActive ? color : 'var(--fm-text-secondary)',
-    backgroundColor: isActive ? `${color}18` : 'var(--fm-btn-bg)',
-    border: isActive ? `1.5px solid ${color}40` : '1px solid var(--fm-btn-border)',
-    filter: isActive ? `drop-shadow(0 0 4px ${color})` : 'none',
+    backgroundColor: isActive ? `${color}10` : 'var(--fm-btn-bg)',
+    border: isActive ? `1px solid ${color}60` : '1px solid var(--fm-btn-border)',
+    opacity: isActive ? 1 : 0.6,
     cursor: 'pointer',
     transition: 'all 150ms',
   });
@@ -994,26 +1437,22 @@ export function DrawingCanvas() {
   const mobileModeBtn = (mode: PlayMode): React.CSSProperties => ({
     flex: 1,
     height: '44px',
-    fontFamily: 'monospace',
-    fontSize: '9px',
-    letterSpacing: '0.05em',
+    fontSize: '10px',
+    letterSpacing: '0.1em',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: '6px',
-    color: playMode === mode ? 'var(--fm-accent)' : 'var(--fm-text-secondary)',
-    backgroundColor: playMode === mode ? 'rgba(var(--fm-accent-rgb), 0.15)' : 'var(--fm-btn-bg)',
-    border: playMode === mode ? '1.5px solid var(--fm-accent)' : '1px solid var(--fm-btn-border)',
+    color: playMode === mode ? 'var(--fm-accent)' : 'var(--fm-text-muted)',
+    backgroundColor: playMode === mode ? 'rgba(var(--fm-accent-rgb), 0.1)' : 'var(--fm-btn-bg)',
+    border: playMode === mode ? '1px solid var(--fm-accent)' : '1px solid var(--fm-btn-border)',
     cursor: 'pointer',
     transition: 'all 150ms',
   });
 
   const compactSelectStyle: React.CSSProperties = {
-    fontFamily: 'monospace',
     fontSize: '9px',
-    letterSpacing: '0.05em',
+    letterSpacing: '0.08em',
     padding: '8px 6px',
-    borderRadius: '6px',
     color: 'var(--fm-text-secondary)',
     backgroundColor: 'var(--fm-btn-bg)',
     border: '1px solid var(--fm-btn-border)',
@@ -1024,8 +1463,8 @@ export function DrawingCanvas() {
     cursor: 'pointer',
   };
 
-  const leftStripW = isTablet ? 72 : LEFT_STRIP_WIDTH;
-  const oscWidth = isTablet ? 320 : FLAVOR_BAR_WIDTH;
+  const leftStripW = isTablet ? 80 : LEFT_STRIP_WIDTH;
+  const oscWidth = isTablet ? 340 : FLAVOR_BAR_WIDTH;
 
   // Shared props object for both desktop and mobile RecordButton instances
   const recordButtonProps = {
@@ -1045,7 +1484,7 @@ export function DrawingCanvas() {
       <style>{`@keyframes formless-rec-pulse { 0%,100%{box-shadow:0 0 6px rgba(239,68,68,0.2)} 50%{box-shadow:0 0 16px rgba(239,68,68,0.55)} }`}</style>
       <AmbientGrid bpm={modulators.tempo} isDark={isDark} />
 
-      <div className="absolute inset-0" style={{ perspective: '1200px', perspectiveOrigin: '50% 50%', backgroundColor: 'var(--fm-canvas-bg)', transition: 'background-color 300ms ease' }}>
+      <div className="absolute inset-0" style={{ backgroundColor: 'var(--fm-canvas-bg)', transition: 'background-color 300ms ease' }}>
         <canvas
           ref={canvasRef}
           className="absolute inset-0 touch-none"
@@ -1057,8 +1496,6 @@ export function DrawingCanvas() {
           style={{
             touchAction: 'none', cursor: 'crosshair',
             width: '100%', height: '100%',
-            transform: 'rotateX(0.3deg) rotateY(0deg) scale(1.01)',
-            transformOrigin: '50% 50%',
           }}
           aria-label="Drawing canvas - draw gestures to create ambient sounds"
           role="application"
@@ -1076,7 +1513,7 @@ export function DrawingCanvas() {
 
       {currentPitch && currentStrokeForUI.length > 0 && (
         <div
-          className="absolute pointer-events-none px-3 py-1 backdrop-blur-sm border rounded font-mono tracking-wider z-30"
+          className="absolute pointer-events-none px-3 py-1 border tracking-wider z-30"
           style={{
             left: currentStrokeForUI[currentStrokeForUI.length - 1].x + 20,
             top: currentStrokeForUI[currentStrokeForUI.length - 1].y - 30,
@@ -1092,47 +1529,59 @@ export function DrawingCanvas() {
       {!isMobile && (
         <div
           className="fixed top-0 left-0 z-20 pointer-events-none transition-opacity duration-200"
-          style={{ padding: '16px', opacity: performanceMode ? 0 : 1 }}
+          style={{ padding: '20px', opacity: performanceMode ? 0 : 1 }}
         >
-          <div className="font-mono opacity-45 tracking-widest select-none"
-            style={{ fontSize: '12px', width: leftStripW, marginBottom: '16px', color: 'var(--fm-accent)' }}>
+          <div className="select-none"
+            style={{ fontSize: '9px', width: leftStripW, marginBottom: '24px', color: 'var(--fm-accent)', letterSpacing: '0.25em', opacity: 0.5 }}>
             FORMLESS
           </div>
-          <div className="flex flex-col items-center flex-shrink-0 pointer-events-auto"
+          <div className="flex flex-col items-stretch flex-shrink-0 pointer-events-auto"
             style={{ width: leftStripW, gap: '8px' }}>
-            <div className="flex w-full" style={{ gap: '6px' }}>
+            {/* Utility row */}
+            <div className="flex w-full" style={{ gap: '4px' }}>
               <button onClick={() => setPerformanceMode(!performanceMode)}
-                className="flex items-center justify-center backdrop-blur-sm border rounded transition-all duration-200"
-                style={{ flex: 1, minHeight: isTouch ? '44px' : undefined, height: isTouch ? undefined : '40px', color: 'var(--fm-text-secondary)', borderColor: 'var(--fm-panel-border)', backgroundColor: 'var(--fm-panel-bg)', cursor: 'pointer' }}
+                className="flex items-center justify-center transition-all duration-200"
+                style={{ flex: 1, height: isTouch ? '44px' : '36px', color: 'var(--fm-text-secondary)', border: '1px solid var(--fm-panel-border)', backgroundColor: 'var(--fm-panel-bg)', cursor: 'pointer' }}
                 aria-label="Toggle performance mode" title="Performance mode">
-                <EyeOff size={16} />
+                <EyeOff size={14} />
               </button>
               <button onClick={toggleTheme}
-                className="flex items-center justify-center backdrop-blur-sm border rounded transition-all duration-200"
-                style={{ flex: 1, minHeight: isTouch ? '44px' : undefined, height: isTouch ? undefined : '40px', color: 'var(--fm-text-secondary)', borderColor: 'var(--fm-panel-border)', backgroundColor: 'var(--fm-panel-bg)', cursor: 'pointer' }}
+                className="flex items-center justify-center transition-all duration-200"
+                style={{ flex: 1, height: isTouch ? '44px' : '36px', color: 'var(--fm-text-secondary)', border: '1px solid var(--fm-panel-border)', backgroundColor: 'var(--fm-panel-bg)', cursor: 'pointer' }}
                 aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}>
-                {isDark ? <Sun size={16} /> : <Moon size={16} />}
+                {isDark ? <Sun size={14} /> : <Moon size={14} />}
               </button>
             </div>
-            <div className="flex flex-col font-mono tracking-wider rounded overflow-hidden border backdrop-blur-sm transition-all duration-200"
-              style={{ width: '100%', borderColor: 'var(--fm-panel-border)', borderRadius: '4px', backgroundColor: 'var(--fm-panel-bg)' }}>
+
+            {/* Play mode */}
+            <div className="flex flex-col overflow-hidden transition-all duration-200"
+              style={{ width: '100%', border: '1px solid var(--fm-panel-border)', backgroundColor: 'var(--fm-panel-bg)' }}>
               {modeOptions.map(mode => (
                 <button key={mode} onClick={() => handlePlayModeChange(mode)}
-                  className="flex items-center justify-center py-1 transition-all duration-200"
-                  style={{ fontSize: '9px', minHeight: isTouch ? '36px' : undefined, color: playMode === mode ? 'var(--fm-accent)' : 'var(--fm-text-secondary)', backgroundColor: playMode === mode ? 'var(--fm-btn-bg-active)' : 'transparent', cursor: 'pointer' }}>
+                  className="flex items-center justify-center transition-all duration-150"
+                  style={{
+                    fontSize: '10px',
+                    letterSpacing: '0.12em',
+                    height: isTouch ? '38px' : '32px',
+                    color: playMode === mode ? 'var(--fm-accent)' : 'var(--fm-text-muted)',
+                    backgroundColor: playMode === mode ? 'var(--fm-btn-bg-active)' : 'transparent',
+                    cursor: 'pointer',
+                    borderBottom: mode !== 'gate' ? '1px solid var(--fm-panel-border)' : 'none',
+                  }}>
                   {mode.toUpperCase()}
                 </button>
               ))}
             </div>
 
-            {/* Desktop RecordButton — stable imported component */}
+            {/* Record */}
             <RecordButton {...recordButtonProps} />
 
+            {/* Clear */}
             <button onClick={handleClear}
-              className="flex items-center justify-center backdrop-blur-sm border rounded transition-all duration-200"
-              style={{ width: '100%', minHeight: isTouch ? '44px' : undefined, height: isTouch ? undefined : '40px', color: 'var(--fm-text-secondary)', borderColor: 'var(--fm-panel-border)', backgroundColor: 'var(--fm-panel-bg)', cursor: 'pointer' }}
+              className="flex items-center justify-center transition-all duration-200"
+              style={{ width: '100%', height: isTouch ? '44px' : '36px', color: 'var(--fm-text-muted)', border: '1px solid var(--fm-panel-border)', backgroundColor: 'var(--fm-panel-bg)', cursor: 'pointer' }}
               aria-label="Clear all strokes" title="Clear all">
-              <Trash2 size={16} />
+              <Trash2 size={14} />
             </button>
           </div>
         </div>
@@ -1140,30 +1589,27 @@ export function DrawingCanvas() {
 
       {!isMobile && performanceMode && (
         <button onClick={() => setPerformanceMode(false)}
-          className="fixed top-4 left-4 w-10 h-10 flex items-center justify-center backdrop-blur-sm border rounded transition-all duration-200 z-30"
-          style={{ color: 'var(--fm-accent)', borderColor: 'var(--fm-btn-border-active)', backgroundColor: 'var(--fm-panel-bg)', cursor: 'pointer' }}
+          className="fixed flex items-center justify-center transition-all duration-200 z-30"
+          style={{ top: '20px', left: '20px', width: '36px', height: '36px', color: 'var(--fm-accent)', border: '1px solid var(--fm-accent)', backgroundColor: 'var(--fm-panel-bg)', cursor: 'pointer' }}
           aria-label="Show panels">
-          <Eye size={16} />
+          <Eye size={14} />
         </button>
       )}
 
       {!isMobile && activeCount > 0 && (
-        <div className="absolute top-5 font-mono opacity-65 pointer-events-none tracking-wider z-20"
-          style={{ fontSize: '10px', color: 'var(--fm-accent)', right: sculptorOpen ? 'calc(220px + 40px)' : '40px', transition: 'right 300ms ease-out' }}>
-          {activeCount.toString().padStart(2, '0')}/24
-        </div>
-      )}
-      {!isMobile && activeCount > 0 && (
-        <div className="absolute top-5 flex items-center gap-2 pointer-events-none z-20"
-          style={{ right: sculptorOpen ? 'calc(220px + 90px)' : '90px', transition: 'right 300ms ease-out' }}>
-          <div className="w-2 h-2 rounded-full animate-pulse" style={{ backgroundColor: 'var(--fm-accent)' }} />
+        <div className="absolute flex items-center gap-2 pointer-events-none z-20"
+          style={{ top: '22px', fontSize: '9px', letterSpacing: '0.1em', right: sculptorOpen ? `calc(${FX_PANEL_WIDTH}px + 40px)` : '40px', transition: 'right 300ms ease-out' }}>
+          <div className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ backgroundColor: 'var(--fm-accent)' }} />
+          <span style={{ color: 'var(--fm-accent)', opacity: 0.6 }}>
+            {activeCount.toString().padStart(2, '0')}/24
+          </span>
         </div>
       )}
 
       {/* Desktop/tablet oscilloscope */}
       {!isMobile && (
         <div className="z-20 transition-opacity duration-200"
-          style={{ position: 'absolute', top: '16px', left: '50%', transform: `translateX(calc(-50% + ${(leftStripW + 16 - FX_PANEL_WIDTH) / 2}px))`, width: `${oscWidth}px`, opacity: performanceMode ? 0 : 1, pointerEvents: performanceMode ? 'none' : 'auto' }}>
+          style={{ position: 'absolute', top: '20px', left: '50%', transform: `translateX(calc(-50% + ${(leftStripW + 20 - FX_PANEL_WIDTH) / 2}px))`, width: `${oscWidth}px`, opacity: performanceMode ? 0 : 1, pointerEvents: performanceMode ? 'none' : 'auto' }}>
           <WaveformVisualizer audioEngine={audioEngineRef.current} />
         </div>
       )}
@@ -1186,7 +1632,7 @@ export function DrawingCanvas() {
       )}
 
       {!isMobile && (
-        <div className="fixed bottom-6 left-4 z-20 pointer-events-auto transition-opacity duration-200"
+        <div className="fixed bottom-5 left-5 z-20 pointer-events-auto transition-opacity duration-200"
           style={{ opacity: performanceMode ? 0 : 1, pointerEvents: performanceMode ? 'none' : 'auto' }}>
           <ScaleSelector rootNote={rootNote} scaleType={scale}
             onRootChange={handleRootChange} onScaleChange={handleScaleChange}
@@ -1197,8 +1643,8 @@ export function DrawingCanvas() {
       {/* MOBILE-ONLY UI */}
 
       {isMobile && (
-        <div className="fixed top-3 left-3 font-mono tracking-widest select-none pointer-events-none z-20"
-          style={{ fontSize: '9px', color: 'var(--fm-accent)', opacity: 0.45 }}>
+        <div className="fixed top-3 left-3 select-none pointer-events-none z-20"
+          style={{ fontSize: '8px', color: 'var(--fm-accent)', opacity: 0.45, letterSpacing: '0.25em' }}>
           FORMLESS
         </div>
       )}
@@ -1206,7 +1652,7 @@ export function DrawingCanvas() {
       {isMobile && activeCount > 0 && (
         <div className="fixed top-3.5 right-3.5 flex items-center gap-1.5 pointer-events-none z-20">
           <div className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ backgroundColor: 'var(--fm-accent)' }} />
-          <span className="font-mono opacity-65 tracking-wider" style={{ fontSize: '10px', color: 'var(--fm-accent)' }}>
+          <span style={{ fontSize: '9px', color: 'var(--fm-accent)', opacity: 0.6, letterSpacing: '0.1em' }}>
             {activeCount.toString().padStart(2, '0')}/24
           </span>
         </div>
@@ -1225,8 +1671,8 @@ export function DrawingCanvas() {
 
       {isMobile && (
         <button onClick={() => { setInstSheetOpen(v => !v); setFxSheetOpen(false); }}
-          className="fixed z-40 flex items-center justify-center font-mono tracking-wider"
-          style={{ bottom: '24px', left: '16px', width: '52px', height: '52px', backgroundColor: instSheetOpen ? 'rgba(var(--fm-accent-rgb), 0.15)' : 'var(--fm-panel-bg)', border: instSheetOpen ? '1.5px solid var(--fm-accent)' : '1px solid var(--fm-panel-border)', borderRadius: '8px', color: instSheetOpen ? 'var(--fm-accent)' : 'var(--fm-text-secondary)', backdropFilter: 'blur(8px)', fontSize: '9px', cursor: 'pointer' }}
+          className="fixed z-40 flex items-center justify-center"
+          style={{ bottom: '24px', left: '16px', width: '52px', height: '52px', backgroundColor: instSheetOpen ? 'rgba(var(--fm-accent-rgb), 0.12)' : 'var(--fm-panel-bg)', border: instSheetOpen ? '1px solid var(--fm-accent)' : '1px solid var(--fm-panel-border)', color: instSheetOpen ? 'var(--fm-accent)' : 'var(--fm-text-secondary)', fontSize: '10px', letterSpacing: '0.08em', cursor: 'pointer' }}
           aria-label="Open instrument panel">
           INST
         </button>
@@ -1234,8 +1680,8 @@ export function DrawingCanvas() {
 
       {isMobile && (
         <button onClick={() => { setFxSheetOpen(v => !v); setInstSheetOpen(false); }}
-          className="fixed z-40 flex items-center justify-center font-mono tracking-wider"
-          style={{ bottom: '24px', right: '16px', width: '52px', height: '52px', backgroundColor: fxSheetOpen ? 'rgba(var(--fm-accent-rgb), 0.15)' : 'var(--fm-panel-bg)', border: fxSheetOpen ? '1.5px solid var(--fm-accent)' : '1px solid var(--fm-panel-border)', borderRadius: '8px', color: fxSheetOpen ? 'var(--fm-accent)' : 'var(--fm-text-secondary)', backdropFilter: 'blur(8px)', fontSize: '9px', cursor: 'pointer' }}
+          className="fixed z-40 flex items-center justify-center"
+          style={{ bottom: '24px', right: '16px', width: '52px', height: '52px', backgroundColor: fxSheetOpen ? 'rgba(var(--fm-accent-rgb), 0.12)' : 'var(--fm-panel-bg)', border: fxSheetOpen ? '1px solid var(--fm-accent)' : '1px solid var(--fm-panel-border)', color: fxSheetOpen ? 'var(--fm-accent)' : 'var(--fm-text-secondary)', fontSize: '10px', letterSpacing: '0.08em', cursor: 'pointer' }}
           aria-label="Open Sound Sculptor">
           FX
         </button>
@@ -1252,7 +1698,7 @@ export function DrawingCanvas() {
           </div>
           <button onClick={handleClear}
             className="flex items-center justify-center"
-            style={{ width: '52px', height: '52px', backgroundColor: 'var(--fm-panel-bg)', border: '1px solid var(--fm-panel-border)', borderRadius: '8px', color: 'var(--fm-text-secondary)', backdropFilter: 'blur(8px)', flexShrink: 0, cursor: 'pointer' }}
+            style={{ width: '52px', height: '52px', backgroundColor: 'var(--fm-panel-bg)', border: '1px solid var(--fm-panel-border)', borderRadius: '0', color: 'var(--fm-text-secondary)', flexShrink: 0, cursor: 'pointer' }}
             aria-label="Clear all strokes">
             <Trash2 size={16} />
           </button>
@@ -1270,7 +1716,7 @@ export function DrawingCanvas() {
             ? 'opacity 200ms ease 80ms, transform 200ms ease 80ms'
             : 'opacity 150ms ease, transform 150ms ease',
         }}>
-          <div className="font-mono tracking-widest" style={{ fontSize: '9px', color: 'var(--fm-text-muted)', marginBottom: '12px' }}>SOUND GENERATOR</div>
+          <div className="tracking-widest" style={{ fontSize: '9px', color: 'var(--fm-text-muted)', marginBottom: '12px' }}>SOUND GENERATOR</div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
             {MOBILE_FLAVORS.map(({ type, icon, label }) => {
               const isAct = activeFlavor === type;
@@ -1283,7 +1729,7 @@ export function DrawingCanvas() {
               );
             })}
           </div>
-          <div className="font-mono tracking-widest" style={{ fontSize: '9px', color: 'var(--fm-text-muted)', marginTop: '16px', marginBottom: '12px' }}>MODE</div>
+          <div className="tracking-widest" style={{ fontSize: '9px', color: 'var(--fm-text-muted)', marginTop: '16px', marginBottom: '12px' }}>MODE</div>
           <div style={{ display: 'flex', gap: '6px' }}>
             {modeOptions.map(mode => (
               <button key={mode} onClick={() => handlePlayModeChange(mode)} style={mobileModeBtn(mode)}>
@@ -1293,19 +1739,19 @@ export function DrawingCanvas() {
           </div>
           <div style={{ display: 'flex', gap: '8px', marginTop: '16px' }}>
             <div style={{ flex: 1 }}>
-              <div className="font-mono tracking-widest" style={{ fontSize: '8px', color: 'var(--fm-text-muted)', marginBottom: '4px' }}>SCALE</div>
+              <div className="tracking-widest" style={{ fontSize: '8px', color: 'var(--fm-text-muted)', marginBottom: '4px' }}>SCALE</div>
               <select value={scale} onChange={(e) => handleScaleChange(e.target.value as ScaleType)} style={compactSelectStyle}>
                 {SCALE_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
               </select>
             </div>
             <div style={{ flex: 0.6 }}>
-              <div className="font-mono tracking-widest" style={{ fontSize: '8px', color: 'var(--fm-text-muted)', marginBottom: '4px' }}>ROOT</div>
+              <div className="tracking-widest" style={{ fontSize: '8px', color: 'var(--fm-text-muted)', marginBottom: '4px' }}>ROOT</div>
               <select value={rootNote} onChange={(e) => handleRootChange(e.target.value as RootNote)} style={compactSelectStyle}>
                 {ROOT_OPTIONS.map(n => <option key={n} value={n}>{n}</option>)}
               </select>
             </div>
             <div style={{ flex: 0.4 }}>
-              <div className="font-mono tracking-widest" style={{ fontSize: '8px', color: 'var(--fm-text-muted)', marginBottom: '4px' }}>OCT</div>
+              <div className="tracking-widest" style={{ fontSize: '8px', color: 'var(--fm-text-muted)', marginBottom: '4px' }}>OCT</div>
               <select value={octave} onChange={(e) => handleOctaveChange(Number(e.target.value))} style={compactSelectStyle}>
                 {OCTAVE_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
               </select>
@@ -1313,7 +1759,7 @@ export function DrawingCanvas() {
           </div>
           <div style={{ marginTop: '16px', display: 'flex', gap: '6px' }}>
             <button onClick={toggleTheme}
-              style={{ flex: 1, height: '36px', fontFamily: 'monospace', fontSize: '9px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', borderRadius: '6px', color: 'var(--fm-text-secondary)', backgroundColor: 'var(--fm-btn-bg)', border: '1px solid var(--fm-btn-border)', cursor: 'pointer' }}>
+              style={{ flex: 1, height: '36px', fontFamily: 'monospace', fontSize: '9px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', borderRadius: '0', color: 'var(--fm-text-secondary)', backgroundColor: 'var(--fm-btn-bg)', border: '1px solid var(--fm-btn-border)', cursor: 'pointer' }}>
               {isDark ? <Sun size={12} /> : <Moon size={12} />}
               {isDark ? 'LIGHT' : 'DARK'}
             </button>
@@ -1337,8 +1783,8 @@ export function DrawingCanvas() {
             style={{
               position: 'absolute', bottom: 0, left: 0, right: 0, height: '48px',
               background: isDark
-                ? 'linear-gradient(to top, rgba(13,15,20,1) 0%, rgba(13,15,20,1) 10%, rgba(13,15,20,0) 100%)'
-                : 'linear-gradient(to top, rgba(237,234,226,1) 0%, rgba(237,234,226,1) 10%, rgba(237,234,226,0) 100%)',
+                ? 'linear-gradient(to top, rgba(10,10,11,1) 0%, rgba(10,10,11,1) 10%, rgba(10,10,11,0) 100%)'
+                : 'linear-gradient(to top, rgba(250,250,250,1) 0%, rgba(250,250,250,1) 10%, rgba(250,250,250,0) 100%)',
               pointerEvents: 'none', zIndex: 10,
             }}
           />
@@ -1371,7 +1817,7 @@ export function DrawingCanvas() {
             return (
               <div key={`${note.name}-${i}`} className="absolute left-0 right-0" style={{ top: yPos }}>
                 <div className="absolute right-0" style={{ left: `${lineLeft}px`, height: '1px', backgroundColor: 'var(--fm-divider)' }} />
-                <span className="absolute font-mono select-none" style={{ left: '8px', top: '-5px', fontSize: '9px', color: 'var(--fm-text-muted)', lineHeight: 1 }}>
+                <span className="absolute select-none" style={{ left: '8px', top: '-5px', fontSize: '9px', color: 'var(--fm-text-muted)', lineHeight: 1 }}>
                   {note.name}
                 </span>
               </div>

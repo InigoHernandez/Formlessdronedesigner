@@ -17,11 +17,11 @@ const notes: RootNote[] = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A',
 const scales: ScaleType[] = ['CHROMATIC', 'MINOR', 'MAJOR', 'PENTATONIC', 'DORIAN', 'PHRYGIAN', 'LYDIAN', 'LOCRIAN', 'WHOLE TONE', 'DIMINISHED'];
 const octaves = [6, 5, 4, 3, 2, 1]; // top=high, bottom=low
 
-const BOX_H = 22;
-const HEADER_H = 24;
-const COL_PAD = 3;
-const COL_GAP = 3;
-const ROOT_W = 39;
+const BOX_H = 24;
+const HEADER_H = 28;
+const COL_PAD = 4;
+const COL_GAP = 2;
+const ROOT_W = 40;
 
 export function ScaleSelector({ rootNote, scaleType, onRootChange, onScaleChange, stripWidth, octave, onOctaveChange }: ScaleSelectorProps) {
   // Root column is tallest (12 items) — all columns match its height
@@ -29,12 +29,13 @@ export function ScaleSelector({ rootNote, scaleType, onRootChange, onScaleChange
   const rootColH = rootContentH + COL_PAD * 2;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'flex-start', gap: '4px', overflow: 'hidden' }}>
+    <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'flex-start', gap: '3px', overflow: 'hidden' }}>
       {/* Root note column */}
       <div style={{ display: 'flex', flexDirection: 'column', height: 'fit-content' }}>
-        <span className="font-mono tracking-wider select-none"
+        <span className="select-none"
           style={{
             fontSize: '8px',
+            letterSpacing: '0.15em',
             height: `${HEADER_H}px`,
             display: 'flex',
             alignItems: 'center',
@@ -42,7 +43,7 @@ export function ScaleSelector({ rootNote, scaleType, onRootChange, onScaleChange
             color: 'var(--fm-text-muted)',
           }}>ROOT</span>
         <div
-          className="flex flex-col backdrop-blur-sm border rounded"
+          className="flex flex-col border"
           role="radiogroup"
           aria-label="Root note"
           style={{ padding: `${COL_PAD}px`, gap: `${COL_GAP}px`, background: 'var(--fm-panel-bg)', borderColor: 'var(--fm-panel-border)' }}
@@ -56,7 +57,7 @@ export function ScaleSelector({ rootNote, scaleType, onRootChange, onScaleChange
                 role="radio"
                 aria-checked={isActive}
                 onClick={() => onRootChange(note)}
-                className="flex items-center justify-center font-mono transition-all duration-200 rounded text-center"
+                className="flex items-center justify-center transition-all duration-200 text-center"
                 style={{
                   width: `${ROOT_W}px`,
                   height: `${BOX_H}px`,
@@ -66,7 +67,7 @@ export function ScaleSelector({ rootNote, scaleType, onRootChange, onScaleChange
                   color: isActive ? 'var(--fm-accent)' : isSharp ? 'var(--fm-text-muted)' : 'var(--fm-text-secondary)',
                   backgroundColor: isActive ? 'rgba(var(--fm-accent-rgb), 0.15)' : 'transparent',
                   border: isActive ? '1.5px solid var(--fm-accent)' : '1px solid transparent',
-                  filter: isActive ? 'drop-shadow(0 0 4px var(--fm-accent))' : 'none',
+                  filter: 'none',
                 }}
               >
                 {note}
@@ -78,9 +79,10 @@ export function ScaleSelector({ rootNote, scaleType, onRootChange, onScaleChange
 
       {/* Scale type column */}
       <div style={{ display: 'flex', flexDirection: 'column', height: 'fit-content' }}>
-        <span className="font-mono tracking-wider select-none"
+        <span className="select-none"
           style={{
             fontSize: '8px',
+            letterSpacing: '0.15em',
             height: `${HEADER_H}px`,
             display: 'flex',
             alignItems: 'center',
@@ -88,7 +90,7 @@ export function ScaleSelector({ rootNote, scaleType, onRootChange, onScaleChange
             color: 'var(--fm-text-muted)',
           }}>SCALE</span>
         <div
-          className="flex flex-col backdrop-blur-sm border rounded"
+          className="flex flex-col border"
           role="radiogroup"
           aria-label="Scale type"
           style={{
@@ -109,7 +111,7 @@ export function ScaleSelector({ rootNote, scaleType, onRootChange, onScaleChange
                 role="radio"
                 aria-checked={isActive}
                 onClick={() => onScaleChange(scale)}
-                className="font-mono tracking-wider transition-all duration-200 rounded text-center whitespace-nowrap"
+                className="transition-all duration-200 text-center whitespace-nowrap"
                 style={{
                   fontSize: '9px',
                   height: `${BOX_H}px`,
@@ -132,9 +134,10 @@ export function ScaleSelector({ rootNote, scaleType, onRootChange, onScaleChange
 
       {/* Octave column */}
       <div style={{ display: 'flex', flexDirection: 'column', height: 'fit-content' }}>
-        <span className="font-mono tracking-wider select-none"
+        <span className="select-none"
           style={{
             fontSize: '8px',
+            letterSpacing: '0.15em',
             height: `${HEADER_H}px`,
             display: 'flex',
             alignItems: 'center',
@@ -142,7 +145,7 @@ export function ScaleSelector({ rootNote, scaleType, onRootChange, onScaleChange
             color: 'var(--fm-text-muted)',
           }}>OCT</span>
         <div
-          className="flex flex-col backdrop-blur-sm border rounded"
+          className="flex flex-col border"
           role="radiogroup"
           aria-label="Octave"
           style={{
@@ -163,7 +166,7 @@ export function ScaleSelector({ rootNote, scaleType, onRootChange, onScaleChange
                 role="radio"
                 aria-checked={isActive}
                 onClick={() => onOctaveChange(oct)}
-                className="font-mono transition-all duration-200 rounded"
+                className="transition-all duration-200"
                 style={{
                   width: `${ROOT_W}px`,
                   flex: 1,
@@ -176,7 +179,7 @@ export function ScaleSelector({ rootNote, scaleType, onRootChange, onScaleChange
                   color: isActive ? 'var(--fm-accent)' : 'var(--fm-text-secondary)',
                   backgroundColor: isActive ? 'rgba(var(--fm-accent-rgb), 0.15)' : 'var(--fm-knob-track)',
                   border: isActive ? '1.5px solid var(--fm-accent)' : `1px solid var(--fm-panel-border)`,
-                  filter: isActive ? 'drop-shadow(0 0 4px var(--fm-accent))' : 'none',
+                  filter: 'none',
                   opacity: isActive ? 1 : 0.85,
                 }}
               >

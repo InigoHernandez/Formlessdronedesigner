@@ -4,24 +4,24 @@
 import { SoundFlavor } from './audioEngine';
 
 export const FLAVOR_COLORS: Record<SoundFlavor, string> = {
-  sine:    '#00FFD1',
-  saw:     '#FFB347',
-  sub:     '#6B00FF',
-  grain:   '#F5E6C8',
-  noise:   '#B8A9C9',
-  metal:   '#C8E6FF',
-  flutter: '#FF9EC8',
-  crystal: '#E8F4FF',
+  sine:    '#00E5A0',
+  saw:     '#F97316',
+  sub:     '#A855F7',
+  grain:   '#FACC15',
+  noise:   '#D4A0C8',
+  metal:   '#3B82F6',
+  flutter: '#EF4444',
+  crystal: '#67E8F9',
 };
 
-// Light-theme stroke trail colors — saturated for legibility on warm cream bg
+// Light-theme stroke trail colors — saturated for legibility on white bg
 export const FLAVOR_COLORS_LIGHT: Record<SoundFlavor, string> = {
-  sine:    '#00897B',
-  saw:     '#D4820A',
-  sub:     '#5C35CC',
-  grain:   '#9B7820',
-  noise:   '#8A7499',
-  metal:   '#5588AA',
-  flutter: '#CC4D88',
-  crystal: '#5577BB',
+  sine:    '#059669',
+  saw:     '#C2410C',
+  sub:     '#7C3AED',
+  grain:   '#B45309',
+  noise:   '#9D4F8A',
+  metal:   '#2563EB',
+  flutter: '#DC2626',
+  crystal: '#0891B2',
 };
