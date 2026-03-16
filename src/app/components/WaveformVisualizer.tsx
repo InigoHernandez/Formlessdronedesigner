@@ -187,7 +187,7 @@ export function WaveformVisualizer({ audioEngine }: WaveformVisualizerProps) {
         height: '56px',
         background: 'var(--fm-osc-bg, rgba(0, 0, 0, 0.25))',
         border: '1px solid var(--fm-osc-border, rgba(255, 255, 255, 0.10))',
-        borderRadius: '0',
+        borderRadius: 'var(--fm-radius-md)',
         overflow: 'hidden',
         boxSizing: 'border-box',
       }}

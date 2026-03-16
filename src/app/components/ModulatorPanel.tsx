@@ -173,7 +173,7 @@ const gridBtnStyle = (on: boolean, mobile?: boolean): React.CSSProperties => ({
   height: mobile ? '36px' : '26px',
   fontSize: mobile ? '10px' : '9px',
   letterSpacing: '0.05em',
-  borderRadius: '0',
+  borderRadius: 'var(--fm-radius-sm)',
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
@@ -271,7 +271,7 @@ function SectionHeader({
               onClick={onReset}
               title={`Reset ${label}`}
               className={btnClass}
-              style={{ color: 'var(--fm-text-muted)', backgroundColor: 'var(--fm-section-btn-bg)', borderColor: 'var(--fm-section-btn-border)', cursor: 'pointer' }}
+              style={{ color: 'var(--fm-text-muted)', backgroundColor: 'var(--fm-section-btn-bg)', borderColor: 'var(--fm-section-btn-border)', cursor: 'pointer', borderRadius: 'var(--fm-radius-sm)' }}
             >
               <RotateCcw size={mobileMode ? 16 : 14} />
             </button>
@@ -281,7 +281,7 @@ function SectionHeader({
               onClick={onRandomize}
               title={`Randomize ${label}`}
               className={btnClass}
-              style={{ color: 'var(--fm-text-muted)', backgroundColor: 'var(--fm-section-btn-bg)', borderColor: 'var(--fm-section-btn-border)', cursor: 'pointer' }}
+              style={{ color: 'var(--fm-text-muted)', backgroundColor: 'var(--fm-section-btn-bg)', borderColor: 'var(--fm-section-btn-border)', cursor: 'pointer', borderRadius: 'var(--fm-radius-sm)' }}
             >
               <Dice5 size={mobileMode ? 16 : 14} />
             </button>
@@ -298,6 +298,7 @@ function SectionHeader({
                 border: powerActive ? '1.5px solid var(--fm-accent)' : '1px solid var(--fm-section-btn-border)',
                 filter: 'none',
                 cursor: 'pointer',
+                borderRadius: 'var(--fm-radius-sm)',
               }}
             >
               <Power size={mobileMode ? 16 : 14} />
@@ -911,6 +912,7 @@ export function ModulatorPanel({
             color: zeroPulse ? 'var(--fm-accent)' : 'var(--fm-text-muted)',
             border: zeroPulse ? '1.5px solid var(--fm-accent)' : '1px solid var(--fm-section-btn-border)',
             backgroundColor: zeroPulse ? 'rgba(var(--fm-accent-rgb), 0.15)' : 'var(--fm-section-btn-bg)',
+            borderRadius: 'var(--fm-radius-sm)',
             filter: 'none',
             cursor: 'pointer',
           }}
@@ -1276,7 +1278,7 @@ export function ModulatorPanel({
   // ═══════════════════════════════════════════════════════════════════════════
 
   return (
-    <div className="fixed top-0 right-0 h-full z-30 flex" style={{ pointerEvents: 'none' }}>
+    <div className="fixed top-0 right-0 bottom-0 z-30 flex items-center justify-end" style={{ pointerEvents: 'none', padding: '16px 0' }}>
       <style>{`
         .knob-element:not(.opacity-30):active {
           box-shadow: var(--fm-knob-shadow-active) !important;
@@ -1286,35 +1288,61 @@ export function ModulatorPanel({
           transition: transform 80ms ease, box-shadow 80ms ease;
         }
       `}</style>
-      <div className="flex flex-col items-end self-start mt-4 gap-1" style={{ pointerEvents: 'auto' }}>
-        <button
-          onClick={() => handleToggle(!isOpen)}
-          className="w-7 h-10 flex items-center justify-center backdrop-blur-sm border border-r-0 transition-all duration-300"
-          style={{ backgroundColor: 'var(--fm-panel-bg)', borderColor: 'var(--fm-section-btn-border)' }}
-          aria-label={isOpen ? 'Collapse Sound Sculptor panel' : 'Expand Sound Sculptor panel'}
-        >
-          {isOpen
-            ? <ChevronRight size={12} style={{ color: 'var(--fm-text-muted)' }} />
-            : <ChevronLeft size={12} style={{ color: 'var(--fm-text-muted)' }} />
-          }
-        </button>
-      </div>
+      {/* Toggle chevron button — vertical oval pill at panel edge */}
+      <button
+        onClick={() => handleToggle(!isOpen)}
+        className="relative transition-all duration-300"
+        style={{
+          pointerEvents: 'auto',
+          width: '16px',
+          height: '48px',
+          backgroundColor: 'var(--fm-panel-bg)',
+          border: '1px solid var(--fm-panel-border)',
+          borderRight: 'none',
+          borderRadius: '8px 0 0 8px',
+          marginRight: isOpen ? '0px' : '0px',
+          boxShadow: 'var(--fm-shadow-sm)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          cursor: 'pointer',
+          outline: 'none',
+        }}
+        aria-label={isOpen ? 'Collapse Sound Sculptor panel' : 'Expand Sound Sculptor panel'}
+      >
+        {isOpen
+          ? <ChevronRight size={12} style={{ color: 'var(--fm-text-muted)' }} />
+          : <ChevronLeft size={12} style={{ color: 'var(--fm-text-muted)' }} />
+        }
+      </button>
       <div
-        className="h-full border-l transition-all duration-300 ease-out overflow-y-auto overflow-x-hidden sculptor-scroll"
-        ref={scrollRef}
+        className="h-full overflow-hidden"
         style={{
           width: isOpen ? '220px' : '0px',
-          padding: isOpen ? '16px 10px' : '16px 0',
           opacity: isOpen ? 1 : 0,
           pointerEvents: isOpen ? 'auto' : 'none',
-          scrollbarWidth: 'thin',
-          scrollbarColor: 'var(--fm-scrollbar-thumb) var(--fm-scrollbar-track)',
           backgroundColor: 'var(--fm-panel-bg)',
-          borderColor: 'var(--fm-panel-border)',
-          ...(isTouch ? { WebkitOverflowScrolling: 'touch' } : {}),
+          border: '1px solid var(--fm-panel-border)',
+          borderRadius: 'var(--fm-radius-lg)',
+          marginRight: '16px',
+          marginLeft: '0px',
+          boxShadow: 'var(--fm-shadow-floating)',
+          transition: 'width 300ms ease-out, opacity 300ms ease-out, background-color 300ms ease',
         }}
       >
-        {panelContent}
+        <div
+          className="h-full overflow-y-auto overflow-x-hidden sculptor-scroll"
+          ref={scrollRef}
+          style={{
+            minWidth: '220px',
+            padding: '16px 10px',
+            scrollbarWidth: 'thin',
+            scrollbarColor: 'var(--fm-scrollbar-thumb) var(--fm-scrollbar-track)',
+            ...(isTouch ? { WebkitOverflowScrolling: 'touch' } : {}),
+          }}
+        >
+          {panelContent}
+        </div>
       </div>
     </div>
   );

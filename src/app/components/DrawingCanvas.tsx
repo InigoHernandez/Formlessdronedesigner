@@ -1,7 +1,7 @@
 // FORMLESS — Drawing Canvas
 // 30fps throttled, max 16 simultaneous strokes, unified pointer events
 // Real-time sound modulation during drawing, Gate/Pulse/Drone mode
-// Left vertical strip layout, centered elements
+// Left sidebar + right FX panel layout
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { AudioEngine, SoundFlavor, PlayMode } from '../utils/audioEngine';
@@ -11,13 +11,14 @@ import { AmbientGrid } from './AmbientGrid';
 import { RadialPulse } from './RadialPulse';
 import { FlavorSelector } from './FlavorSelector';
 import { ModulatorPanel } from './ModulatorPanel';
-import { ScaleSelector, RootNote, ScaleType, getRootFrequency, getScaleIntervals, buildScaleTable, mapYToScaleFreq, type ScaleNote } from './ScaleSelector';
+import { RootNote, ScaleType, getRootFrequency, getScaleIntervals, buildScaleTable, mapYToScaleFreq, type ScaleNote } from './ScaleSelector';
 import { CRTEffect } from './CRTEffect';
 import { FLAVOR_COLORS } from '../utils/flavorColors';
 import { FLAVOR_COLORS_LIGHT } from '../utils/flavorColors';
-import { Eye, EyeOff, Trash2, Sun, Moon, Circle, ZapIcon, Waves, Sparkles, Wind, Hexagon, Disc, Diamond } from 'lucide-react';
+import { Eye, Sun, Moon, Circle, ZapIcon, Waves, Sparkles, Wind, Hexagon, Disc, Diamond, Trash2 } from 'lucide-react';
 import { useTheme } from './ThemeContext';
 import { RecordButton } from './RecordButton';
+import { LeftSidebar } from './LeftSidebar';
 import { drawStroke as drawStrokeExternal } from '../utils/strokeRenderers';
 
 // ─── WAV converter ───
@@ -96,7 +97,7 @@ interface VisualPulse {
   duration: number;
 }
 
-const LEFT_STRIP_WIDTH = 96;
+const LEFT_SIDEBAR_WIDTH = 220;
 const FX_PANEL_WIDTH = 224;
 const FLAVOR_BAR_WIDTH = 420;
 
@@ -199,6 +200,10 @@ export function DrawingCanvas() {
   const playModeRef = useRef<PlayMode>('drone');
   const [flavorVolumes, setFlavorVolumes] = useState(audioEngineRef.current.getFlavorVolumes());
   const [sculptorOpen, setSculptorOpen] = useState(true);
+  const [leftSidebarOpen, setLeftSidebarOpen] = useState(true);
+  const undoStackRef = useRef<Stroke[]>([]);
+  const redoStackRef = useRef<Stroke[]>([]);
+  const [undoRedoVersion, setUndoRedoVersion] = useState(0);
 
   // Responsive breakpoints
   const [screenWidth, setScreenWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1200);
@@ -574,6 +579,8 @@ export function DrawingCanvas() {
     }]);
     const normalized = Math.min(analyzed.length / 800, 1);
     const duration = isLocked ? Infinity : (4 + normalized * 4) * 1000;
+    redoStackRef.current = [];
+    setUndoRedoVersion(v => v + 1);
     setStrokes(prev => [...prev, {
       id: ps.liveStrokeId, points, color, startTime: Date.now(), duration,
       avgY: analyzed.avgY, flavor, locked: isLocked, muted: false, isPulse,
@@ -587,9 +594,42 @@ export function DrawingCanvas() {
   const handleClear = useCallback(() => {
     setShowScanlineGlitch(true);
     setTimeout(() => setShowScanlineGlitch(false), 350);
+    undoStackRef.current = [];
+    redoStackRef.current = [];
+    setUndoRedoVersion(v => v + 1);
     setStrokes([]);
     setPulses([]);
     audioEngineRef.current.clearAll();
+  }, []);
+
+  const handleUndo = useCallback(() => {
+    setStrokes(prev => {
+      if (prev.length === 0) return prev;
+      const last = prev[prev.length - 1];
+      redoStackRef.current = [...redoStackRef.current, last];
+      setUndoRedoVersion(v => v + 1);
+      audioEngineRef.current.releaseStroke(last.id, 0.08);
+      return prev.slice(0, -1);
+    });
+  }, []);
+
+  const handleRedo = useCallback(() => {
+    if (redoStackRef.current.length === 0) return;
+    const stroke = redoStackRef.current[redoStackRef.current.length - 1];
+    redoStackRef.current = redoStackRef.current.slice(0, -1);
+    undoStackRef.current = [...undoStackRef.current, stroke];
+    setUndoRedoVersion(v => v + 1);
+    const newId = stroke.id + '_redo_' + Date.now();
+    const restoredStroke: Stroke = { ...stroke, id: newId, startTime: Date.now(), fadeOutStart: undefined, locked: true, duration: Infinity };
+    setStrokes(prev => [...prev, restoredStroke]);
+    // Re-play audio for the restored stroke
+    const analyzed = StrokeAnalyzer.analyze(stroke.points);
+    const h = typeof window !== 'undefined' ? window.innerHeight : 900;
+    const freq = mapYToScaleFreq(analyzed.avgY, h, scaleTableRef.current).freq;
+    audioEngineRef.current.playStroke(
+      { points: stroke.points, speed: analyzed.speed, avgY: analyzed.avgY, length: analyzed.length, curvature: analyzed.curvature, startPoint: analyzed.startPoint, flavor: stroke.flavor },
+      newId, true, freq
+    );
   }, []);
 
   // ─── Recording handlers ───
@@ -1463,7 +1503,7 @@ export function DrawingCanvas() {
     cursor: 'pointer',
   };
 
-  const leftStripW = isTablet ? 80 : LEFT_STRIP_WIDTH;
+  const leftSidebarW = leftSidebarOpen ? (isTablet ? 180 : LEFT_SIDEBAR_WIDTH) : 0;
   const oscWidth = isTablet ? 340 : FLAVOR_BAR_WIDTH;
 
   // Shared props object for both desktop and mobile RecordButton instances
@@ -1525,72 +1565,46 @@ export function DrawingCanvas() {
         </div>
       )}
 
-      {/* DESKTOP + TABLET: Left Strip */}
-      {!isMobile && (
-        <div
-          className="fixed top-0 left-0 z-20 pointer-events-none transition-opacity duration-200"
-          style={{ padding: '20px', opacity: performanceMode ? 0 : 1 }}
-        >
-          <div className="select-none"
-            style={{ fontSize: '9px', width: leftStripW, marginBottom: '24px', color: 'var(--fm-accent)', letterSpacing: '0.25em', opacity: 0.5 }}>
-            FORMLESS
-          </div>
-          <div className="flex flex-col items-stretch flex-shrink-0 pointer-events-auto"
-            style={{ width: leftStripW, gap: '8px' }}>
-            {/* Utility row */}
-            <div className="flex w-full" style={{ gap: '4px' }}>
-              <button onClick={() => setPerformanceMode(!performanceMode)}
-                className="flex items-center justify-center transition-all duration-200"
-                style={{ flex: 1, height: isTouch ? '44px' : '36px', color: 'var(--fm-text-secondary)', border: '1px solid var(--fm-panel-border)', backgroundColor: 'var(--fm-panel-bg)', cursor: 'pointer' }}
-                aria-label="Toggle performance mode" title="Performance mode">
-                <EyeOff size={14} />
-              </button>
-              <button onClick={toggleTheme}
-                className="flex items-center justify-center transition-all duration-200"
-                style={{ flex: 1, height: isTouch ? '44px' : '36px', color: 'var(--fm-text-secondary)', border: '1px solid var(--fm-panel-border)', backgroundColor: 'var(--fm-panel-bg)', cursor: 'pointer' }}
-                aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}>
-                {isDark ? <Sun size={14} /> : <Moon size={14} />}
-              </button>
-            </div>
-
-            {/* Play mode */}
-            <div className="flex flex-col overflow-hidden transition-all duration-200"
-              style={{ width: '100%', border: '1px solid var(--fm-panel-border)', backgroundColor: 'var(--fm-panel-bg)' }}>
-              {modeOptions.map(mode => (
-                <button key={mode} onClick={() => handlePlayModeChange(mode)}
-                  className="flex items-center justify-center transition-all duration-150"
-                  style={{
-                    fontSize: '10px',
-                    letterSpacing: '0.12em',
-                    height: isTouch ? '38px' : '32px',
-                    color: playMode === mode ? 'var(--fm-accent)' : 'var(--fm-text-muted)',
-                    backgroundColor: playMode === mode ? 'var(--fm-btn-bg-active)' : 'transparent',
-                    cursor: 'pointer',
-                    borderBottom: mode !== 'gate' ? '1px solid var(--fm-panel-border)' : 'none',
-                  }}>
-                  {mode.toUpperCase()}
-                </button>
-              ))}
-            </div>
-
-            {/* Record */}
-            <RecordButton {...recordButtonProps} />
-
-            {/* Clear */}
-            <button onClick={handleClear}
-              className="flex items-center justify-center transition-all duration-200"
-              style={{ width: '100%', height: isTouch ? '44px' : '36px', color: 'var(--fm-text-muted)', border: '1px solid var(--fm-panel-border)', backgroundColor: 'var(--fm-panel-bg)', cursor: 'pointer' }}
-              aria-label="Clear all strokes" title="Clear all">
-              <Trash2 size={14} />
-            </button>
-          </div>
-        </div>
+      {/* DESKTOP + TABLET: Left Sidebar */}
+      {!isMobile && !performanceMode && (
+        <LeftSidebar
+          audioEngine={audioEngineRef.current}
+          isOpen={leftSidebarOpen}
+          onToggle={setLeftSidebarOpen}
+          playMode={playMode}
+          onPlayModeChange={handlePlayModeChange}
+          rootNote={rootNote}
+          scale={scale}
+          octave={octave}
+          onRootChange={handleRootChange}
+          onScaleChange={handleScaleChange}
+          onOctaveChange={handleOctaveChange}
+          onClear={handleClear}
+          onUndo={handleUndo}
+          onRedo={handleRedo}
+          canUndo={strokes.length > 0}
+          canRedo={redoStackRef.current.length > 0}
+          recordState={recordState}
+          recordSeconds={recordSeconds}
+          maxRecordSeconds={MAX_RECORD_SECONDS}
+          isGateMode={playMode === 'gate'}
+          onRecordStart={handleRecordStart}
+          onRecordStop={handleRecordStop}
+          onRecordDownload={handleRecordDownload}
+          onRecordClear={handleRecordClear}
+          isDark={isDark}
+          onToggleTheme={toggleTheme}
+          performanceMode={performanceMode}
+          onTogglePerformanceMode={() => setPerformanceMode(!performanceMode)}
+          isTouch={isTouch}
+          isMobile={isMobile}
+        />
       )}
 
       {!isMobile && performanceMode && (
         <button onClick={() => setPerformanceMode(false)}
           className="fixed flex items-center justify-center transition-all duration-200 z-30"
-          style={{ top: '20px', left: '20px', width: '36px', height: '36px', color: 'var(--fm-accent)', border: '1px solid var(--fm-accent)', backgroundColor: 'var(--fm-panel-bg)', cursor: 'pointer' }}
+          style={{ top: '12px', left: '12px', width: '36px', height: '36px', color: 'var(--fm-accent)', border: '1px solid var(--fm-accent)', backgroundColor: 'var(--fm-panel-bg)', cursor: 'pointer' }}
           aria-label="Show panels">
           <Eye size={14} />
         </button>
@@ -1598,7 +1612,7 @@ export function DrawingCanvas() {
 
       {!isMobile && activeCount > 0 && (
         <div className="absolute flex items-center gap-2 pointer-events-none z-20"
-          style={{ top: '22px', fontSize: '9px', letterSpacing: '0.1em', right: sculptorOpen ? `calc(${FX_PANEL_WIDTH}px + 40px)` : '40px', transition: 'right 300ms ease-out' }}>
+          style={{ top: '16px', fontSize: '9px', letterSpacing: '0.1em', right: performanceMode ? '20px' : sculptorOpen ? `calc(${FX_PANEL_WIDTH}px + 40px)` : '40px', transition: 'right 300ms ease-out' }}>
           <div className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ backgroundColor: 'var(--fm-accent)' }} />
           <span style={{ color: 'var(--fm-accent)', opacity: 0.6 }}>
             {activeCount.toString().padStart(2, '0')}/24
@@ -1606,13 +1620,7 @@ export function DrawingCanvas() {
         </div>
       )}
 
-      {/* Desktop/tablet oscilloscope */}
-      {!isMobile && (
-        <div className="z-20 transition-opacity duration-200"
-          style={{ position: 'absolute', top: '20px', left: '50%', transform: `translateX(calc(-50% + ${(leftStripW + 20 - FX_PANEL_WIDTH) / 2}px))`, width: `${oscWidth}px`, opacity: performanceMode ? 0 : 1, pointerEvents: performanceMode ? 'none' : 'auto' }}>
-          <WaveformVisualizer audioEngine={audioEngineRef.current} />
-        </div>
-      )}
+      {/* Desktop/tablet oscilloscope removed — now in LeftSidebar */}
 
       {!isMobile && (
         <div className="transition-opacity duration-200"
@@ -1620,7 +1628,9 @@ export function DrawingCanvas() {
           <FlavorSelector activeFlavor={activeFlavor} onSelectFlavor={setActiveFlavor}
             flavorVolumes={flavorVolumes}
             onFlavorVolumeChange={(flavor, value) => { audioEngineRef.current.setFlavorVolume(flavor, value); setFlavorVolumes(audioEngineRef.current.getFlavorVolumes()); }}
-            isDark={isDark} />
+            isDark={isDark}
+            leftOffset={performanceMode ? 0 : leftSidebarW}
+            rightOffset={performanceMode ? 0 : (sculptorOpen ? FX_PANEL_WIDTH : 0)} />
         </div>
       )}
 
@@ -1631,14 +1641,7 @@ export function DrawingCanvas() {
         </div>
       )}
 
-      {!isMobile && (
-        <div className="fixed bottom-5 left-5 z-20 pointer-events-auto transition-opacity duration-200"
-          style={{ opacity: performanceMode ? 0 : 1, pointerEvents: performanceMode ? 'none' : 'auto' }}>
-          <ScaleSelector rootNote={rootNote} scaleType={scale}
-            onRootChange={handleRootChange} onScaleChange={handleScaleChange}
-            stripWidth={leftStripW} octave={octave} onOctaveChange={handleOctaveChange} />
-        </div>
-      )}
+      {/* ScaleSelector removed from here — now in LeftSidebar */}
 
       {/* MOBILE-ONLY UI */}
 
@@ -1794,7 +1797,7 @@ export function DrawingCanvas() {
       {/* Root change radial pulse */}
       {rootPulse && (
         <div className="fixed inset-0 pointer-events-none flex items-center justify-center" style={{ zIndex: 15 }}>
-          <div style={{ width: 0, height: 0, borderRadius: '50%', background: `radial-gradient(circle, rgba(var(--fm-accent-rgb),0.15) 0%, transparent 70%)`, transform: isMobile ? 'none' : `translateX(${(leftStripW + 16 - FX_PANEL_WIDTH) / 2}px)`, animation: 'rootPulseAnim 600ms ease-out forwards' }} />
+          <div style={{ width: 0, height: 0, borderRadius: '50%', background: `radial-gradient(circle, rgba(var(--fm-accent-rgb),0.15) 0%, transparent 70%)`, transform: isMobile ? 'none' : `translateX(${(leftSidebarW - FX_PANEL_WIDTH) / 2}px)`, animation: 'rootPulseAnim 600ms ease-out forwards' }} />
           <style>{`
             @keyframes rootPulseAnim {
               0% { width: 100px; height: 100px; opacity: 0; }

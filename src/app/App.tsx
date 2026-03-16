@@ -3,6 +3,7 @@ import { DrawingCanvas } from './components/DrawingCanvas';
 import { ThemeProvider } from './components/ThemeContext';
 import { SplashScreen } from './components/SplashScreen';
 
+// Force rebuild
 export default function App() {
   const [showSplash, setShowSplash] = useState(true);
 

@@ -490,7 +490,7 @@ export class AudioEngine {
     this.compressor.release.value = 0.8;
 
     this.postCompGain = c.createGain();
-    this.postCompGain.gain.value = 0.92;
+    this.postCompGain.gain.value = 1.20;
 
     this.softClipper = c.createWaveShaper();
     this.softClipper.oversample = '2x';

@@ -13,6 +13,8 @@ interface FlavorSelectorProps {
   flavorVolumes: Record<SoundFlavor, number>;
   onFlavorVolumeChange: (flavor: SoundFlavor, value: number) => void;
   isDark?: boolean;
+  leftOffset?: number;
+  rightOffset?: number;
 }
 
 const flavors: Array<{ type: SoundFlavor; icon: (size: number) => React.ReactNode; label: string }> = [
@@ -88,7 +90,7 @@ function VolumeFader({ color, value, onChange }: { color: string; value: number;
   );
 }
 
-export function FlavorSelector({ activeFlavor, onSelectFlavor, flavorVolumes, onFlavorVolumeChange, isDark = true }: FlavorSelectorProps) {
+export function FlavorSelector({ activeFlavor, onSelectFlavor, flavorVolumes, onFlavorVolumeChange, isDark = true, leftOffset = 0, rightOffset = 0 }: FlavorSelectorProps) {
   const [mixerOpen, setMixerOpen] = useState(false);
   const colorMap = isDark ? FLAVOR_COLORS : FLAVOR_COLORS_LIGHT;
 
@@ -100,7 +102,7 @@ export function FlavorSelector({ activeFlavor, onSelectFlavor, flavorVolumes, on
   };
 
   return (
-    <div className="fixed bottom-5 z-20" style={{ left: '50%', transform: 'translateX(-50%)' }}>
+    <div className="fixed bottom-5 z-20" style={{ left: `calc(50% + ${(leftOffset - rightOffset) / 2}px)`, transform: 'translateX(-50%)', transition: 'left 300ms ease-out' }}>
       {/* Mixer panel */}
       <div
         className="overflow-hidden transition-all duration-200 ease-out"
@@ -118,6 +120,8 @@ export function FlavorSelector({ activeFlavor, onSelectFlavor, flavorVolumes, on
             borderTop: '1px solid var(--fm-panel-border)',
             borderLeft: '1px solid var(--fm-panel-border)',
             borderRight: '1px solid var(--fm-panel-border)',
+            borderTopLeftRadius: 'var(--fm-radius-lg)',
+            borderTopRightRadius: 'var(--fm-radius-lg)',
           }}
         >
           <div style={gridStyle}>
@@ -136,7 +140,9 @@ export function FlavorSelector({ activeFlavor, onSelectFlavor, flavorVolumes, on
           alignItems: 'center',
           background: 'var(--fm-panel-bg)',
           border: '1px solid var(--fm-panel-border)',
+          borderRadius: mixerOpen ? '0 0 var(--fm-radius-lg) var(--fm-radius-lg)' : 'var(--fm-radius-lg)',
           paddingRight: 36,
+          boxShadow: 'var(--fm-shadow-md)',
         }}
         role="radiogroup"
         aria-label="Sound flavor"
@@ -178,6 +184,7 @@ export function FlavorSelector({ activeFlavor, onSelectFlavor, flavorVolumes, on
                     width: 20,
                     height: 2,
                     backgroundColor: color,
+                    borderRadius: '2px',
                   }} />
                 )}
               </button>

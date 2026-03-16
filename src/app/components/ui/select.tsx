@@ -10,6 +10,11 @@ import {
 
 import { cn } from "./utils";
 
+// Wrapper to prevent Figma inspector props from reaching icons
+const IconWrapper = ({ children }: { children: React.ReactNode }) => {
+  return <>{children}</>;
+};
+
 function Select({
   ...props
 }: React.ComponentProps<typeof SelectPrimitive.Root>) {
@@ -48,7 +53,9 @@ function SelectTrigger({
     >
       {children}
       <SelectPrimitive.Icon asChild>
-        <ChevronDownIcon className="size-4 opacity-50" />
+        <IconWrapper>
+          <ChevronDownIcon className="size-4 opacity-50" />
+        </IconWrapper>
       </SelectPrimitive.Icon>
     </SelectPrimitive.Trigger>
   );
@@ -118,7 +125,9 @@ function SelectItem({
     >
       <span className="absolute right-2 flex size-3.5 items-center justify-center">
         <SelectPrimitive.ItemIndicator>
-          <CheckIcon className="size-4" />
+          <IconWrapper>
+            <CheckIcon className="size-4" />
+          </IconWrapper>
         </SelectPrimitive.ItemIndicator>
       </span>
       <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>
@@ -152,7 +161,9 @@ function SelectScrollUpButton({
       )}
       {...props}
     >
-      <ChevronUpIcon className="size-4" />
+      <IconWrapper>
+        <ChevronUpIcon className="size-4" />
+      </IconWrapper>
     </SelectPrimitive.ScrollUpButton>
   );
 }
@@ -170,7 +181,9 @@ function SelectScrollDownButton({
       )}
       {...props}
     >
-      <ChevronDownIcon className="size-4" />
+      <IconWrapper>
+        <ChevronDownIcon className="size-4" />
+      </IconWrapper>
     </SelectPrimitive.ScrollDownButton>
   );
 }

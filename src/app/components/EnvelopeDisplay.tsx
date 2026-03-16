@@ -333,7 +333,7 @@ export function EnvelopeDisplay({ envAttack, envRelease, playMode = 'gate', temp
       className="w-full cursor-default"
       style={{
         height: '80px',
-        borderRadius: '0',
+        borderRadius: 'var(--fm-radius-md)',
         touchAction: 'none',
         cursor: hoverPoint || dragRef.current ? 'col-resize' : 'default',
       }}

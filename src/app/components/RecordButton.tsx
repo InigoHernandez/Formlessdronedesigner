@@ -56,6 +56,7 @@ export function RecordButton({
           opacity: isGateMode ? 0.4 : 1,
           cursor: isGateMode ? 'not-allowed' : 'pointer',
           pointerEvents: isGateMode ? 'none' : 'auto',
+          borderRadius: 'var(--fm-radius-sm)',
         }}
         title={isGateMode ? 'Recording not available in Gate mode' : 'Record audio loop (max 20s)'}
       >
@@ -84,6 +85,7 @@ export function RecordButton({
           overflow: 'hidden',
           animation: 'formless-rec-pulse 1.4s ease-in-out infinite',
           flexShrink: 0,
+          borderRadius: 'var(--fm-radius-sm)',
         }}
       >
         <div style={{
@@ -164,6 +166,7 @@ export function RecordButton({
           border: '1px solid var(--fm-accent)',
           backgroundColor: 'rgba(var(--fm-accent-rgb), 0.08)',
           cursor: 'pointer',
+          borderRadius: 'var(--fm-radius-sm)',
         }}
         title="Download WAV"
       >
@@ -193,6 +196,7 @@ export function RecordButton({
           border: '1px solid var(--fm-panel-border)',
           backgroundColor: 'var(--fm-panel-bg)',
           cursor: 'pointer',
+          borderRadius: 'var(--fm-radius-sm)',
         }}
         title="Discard recording"
       >
